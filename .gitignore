@@ -1,0 +1,17 @@
+# Build output
+/build/
+
+# Monolith's Shogo source (shogsrc22.zip): its EULA forbids redistribution.
+/third_party/shogsrc22/
+/shogo_sourcecode22.zip
+shogsrc22.zip
+
+# The user's own copy of the game (GOG installer and extracted data).
+/gamedata/
+/setup_shogo_*.exe
+
+.DS_Store
+
+# Our patch to Monolith's game code: its diff context is their source, so it
+# stays local (see README).
+/patches/
