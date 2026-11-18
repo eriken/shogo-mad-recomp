@@ -2,7 +2,7 @@
 // (real functions where implemented, logging stubs elsewhere), drives startup
 // and a number of headless frames, and reports which engine calls the game made.
 //
-// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu | --gpu-reference] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
+// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu [--smooth] [--msaa N] [--gpu-scale S] | --gpu-reference] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
 //                    <object.lto.dylib> <cshell.dylib>
 // Run it from the extracted game folder.
 #include "engine/game_host.h"
@@ -77,6 +77,8 @@ int main(int argc, char **argv)
     std::vector<std::string> conVars;  // "+name value" pairs, set before the game starts
     bool gpu = false;                   // draw the world with the GPU backend
     bool gpuReference = false;          // software drawing, with a GPU device created as for --gpu
+    shogo::GpuSettings gpuSettings;     // --smooth, --msaa N
+    float gpuScale = 1;                 // --gpu-scale S: the GPU screen at S times the game's resolution
     bool saveConfig = false;            // write autoexec.cfg at the end, as the game does at exit
     bool movies = false;               // play the intro movies (otherwise skipped, so key timings stay put)
     for (int i = 1; i < argc; ++i) {
@@ -92,6 +94,9 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--save-config")) saveConfig = true;
         else if (!strcmp(argv[i], "--gpu")) gpu = true;
         else if (!strcmp(argv[i], "--gpu-reference")) gpuReference = true;
+        else if (!strcmp(argv[i], "--smooth")) gpuSettings.smoothTextures = true;
+        else if (!strcmp(argv[i], "--msaa") && i + 1 < argc) gpuSettings.msaa = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--gpu-scale") && i + 1 < argc) gpuScale = float(atof(argv[++i]));
         else if (!strcmp(argv[i], "--click") && i + 1 < argc) {
             int b = 0, at = 0;
             if (sscanf(argv[++i], "%i@%d", &b, &at) == 2) clicks.push_back({b, at});
@@ -131,7 +136,8 @@ int main(int argc, char **argv)
     if (gpu || gpuReference) {
         gpuScreen = shogo::GpuScreen::create(nullptr);
         if (!gpuScreen) return 1;
-        auto backend = shogo::makeGpuBackend(gpuScreen->device(), gpuScreen.get());
+        auto backend = shogo::makeGpuBackend(gpuScreen->device(), gpuScreen.get(), gpuSettings);
+        gpuScreen->setScale(gpuScale);
         if (!backend) return 1;
         if (gpuReference) {
             gpuDevice = std::move(backend);  // kept alive, not drawn with
@@ -209,8 +215,13 @@ int main(int argc, char **argv)
     printf("Ran %d frame(s), %u presented%s\n", frames, host.client.framesPresented,
            host.quitRequested() ? " (game requested shutdown)" : "");
     if (screenshot) {
-        if (host.client.screenTarget) host.client.screenTarget->toCPU(*host.client.screen);
-        bool ok = shogo::writePNG(*host.client.screen, screenshot);
+        bool ok;
+        if (gpuScreen && host.client.screenTarget && gpuScreen->scale() != 1) {  // at the texture's resolution
+            ok = shogo::writePNG(gpuScreen->capture(*host.client.screen), screenshot);
+        } else {
+            if (host.client.screenTarget) host.client.screenTarget->toCPU(*host.client.screen);
+            ok = shogo::writePNG(*host.client.screen, screenshot);
+        }
         printf("Screenshot %s: %s\n", ok ? "written" : "FAILED", screenshot);
     }
     if (audioOut) {

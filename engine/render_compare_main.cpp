@@ -5,9 +5,10 @@
 // software and the GPU backend, and checks they agree. Then it draws the same
 // scene straight into the GPU screen, with every 2D operation (blits in each
 // mode, scaling, warps, rotations, masks, fills) on top, and compares that
-// with the CPU doing the same.
+// with the CPU doing the same, also with the GPU screen at 2.5 times the
+// resolution (its 2D read back per screen pixel).
 //
-//   shogo-render-compare [--out prefix]   writes prefix_{sw,gpu,screen_sw,screen_gpu}.png
+//   shogo-render-compare [--out prefix]   writes prefix_{sw,gpu,screen_sw,screen_gpu,screen_gpu_x2.5}.png
 //
 // Exits 0 when at most 0.5% of 3D pixels differ by more than 8 (of 255) in
 // any channel and the GPU screen's 2D is exact, 1 otherwise, and 77 when
@@ -237,13 +238,14 @@ int main(int argc, char **argv)
         printf("no GPU: skipped\n");
         return 77;
     }
-    // 0: software, 1: GPU (read back), 2: software + CPU 2D, 3: GPU screen + GPU 2D
-    Surface shots[4] = {Surface(640, 480), Surface(640, 480), Surface(640, 480), Surface(640, 480)};
-    for (int b = 0; b < 4; ++b) {
+    // 0: software, 1: GPU (read back), 2: software + CPU 2D, 3: GPU screen + GPU 2D,
+    // 4: the same with the GPU screen at 2.5 times the resolution
+    Surface shots[5] = {Surface(640, 480), Surface(640, 480), Surface(640, 480), Surface(640, 480), Surface(640, 480)};
+    for (int b = 0; b < 5; ++b) {
         Surface &dst = shots[b];
         std::fill(dst.pixels.begin(), dst.pixels.end(), 0x203040u);
-        if (b == 3) screen->fill(dst, nullptr, 0x203040u);  // makes it the GPU screen
-        RenderBackend &r = *backends[b == 3 ? 2 : b & 1];
+        if (b >= 3) screen->fill(dst, nullptr, 0x203040u);  // makes it the GPU screen
+        RenderBackend &r = *backends[b >= 3 ? 2 : b & 1];
         r.begin(dst, frame);
         r.draw(world, {{0, 0, 0}, false, 1.0f, true});
         r.draw(dynamic, {{0, 0, 0}});
@@ -254,15 +256,16 @@ int main(int argc, char **argv)
         r.screenAdd(tint);
         r.end();
         if (b == 2) draw2D(CpuOps{dst});
-        if (b == 3) {
+        if (b >= 3) {
             draw2D(GpuOps{*screen, dst});
-            screen->present(dst);
             screen->toCPU(dst);
+            screen->setScale(2.5f);
+            screen->present(dst);  // the new scale applies from the next screen on
         }
     }
     if (out) {
-        const char *names[4] = {"_sw.png", "_gpu.png", "_screen_sw.png", "_screen_gpu.png"};
-        for (int b = 0; b < 4; ++b) writePNG(shots[b], (std::string(out) + names[b]).c_str());
+        const char *names[5] = {"_sw.png", "_gpu.png", "_screen_sw.png", "_screen_gpu.png", "_screen_gpu_x2.5.png"};
+        for (int b = 0; b < 5; ++b) writePNG(shots[b], (std::string(out) + names[b]).c_str());
     }
 
     Diff d = compare(shots[0], shots[1]);
@@ -270,18 +273,21 @@ int main(int argc, char **argv)
     bool ok = d.big <= 0.5;
     // On the GPU screen, 2D pixels must be exactly the CPU's, and the rest
     // exactly what the GPU backend drew through a CPU frame.
-    size_t drawn2D = 0, wrong2D = 0, wrong3D = 0;
+    size_t drawn2D = 0, wrong2D = 0, wrong3D = 0, wrongScaled = 0;
     for (size_t i = 0; i < shots[0].pixels.size(); ++i) {
         const uint32_t c = 0xFFFFFF;
         if ((shots[2].pixels[i] & c) != (shots[0].pixels[i] & c)) {
             ++drawn2D;
             wrong2D += (shots[3].pixels[i] & c) != (shots[2].pixels[i] & c);
+            wrongScaled += (shots[4].pixels[i] & c) != (shots[2].pixels[i] & c);
         } else {
             wrong3D += (shots[3].pixels[i] & c) != (shots[1].pixels[i] & c);
         }
     }
     printf("GPU screen: %zu of %zu 2D pixels differ from the CPU's, %zu other pixels from the GPU backend's\n", wrong2D,
            drawn2D, wrong3D);
-    ok = ok && drawn2D > 0 && wrong2D == 0 && wrong3D == 0;
+    printf("GPU screen at 2.5x (%s): %zu of %zu 2D pixels differ from the CPU's\n",
+           screen->scale() == 2.5f ? "read back per screen pixel" : "NOT SCALED", wrongScaled, drawn2D);
+    ok = ok && drawn2D > 0 && wrong2D == 0 && wrong3D == 0 && wrongScaled == 0 && screen->scale() == 2.5f;
     return ok ? 0 : 1;
 }

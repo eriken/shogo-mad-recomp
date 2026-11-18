@@ -64,7 +64,7 @@ struct Light {
 };
 struct FU {
     float4 lightScale;
-    float4 atlasInv;  // 1 / atlas w, h; light count
+    float4 atlasInv;  // 1 / atlas w, h; light count; smooth textures
     Light lights[64];
 };
 
@@ -131,8 +131,9 @@ fragment float4 fs_world(VOut in [[stage_in]], constant FU &u [[buffer(0)]],
         float ta = t.a * 255.0;
         if (ta < 0.5 || (!blended && ta < 127.5)) discard_fragment();
         if (blended) fade *= t.a;
-    } else if ((flags & kColorKey) && all(t.rgb * 255.0 < 0.5)) {
-        discard_fragment();
+    } else if (flags & kColorKey) {
+        // Smooth textures carry the key as alpha (black: 0), filtered.
+        if (u.atlasInv.w > 0 ? t.a < 0.5 : all(t.rgb * 255.0 < 0.5)) discard_fragment();
     }
     float alpha = in.mode.x;
     if (flags & kAlpha) alpha *= fade;  // alpha blends fade by coverage
@@ -140,6 +141,19 @@ fragment float4 fs_world(VOut in [[stage_in]], constant FU &u [[buffer(0)]],
     // Truncated to 8 bits like the software renderer (stores round otherwise).
     float3 c = floor(min(t.rgb * light, 1.0) * 255.0 + 0.001) / 255.0;
     return float4(c, blended ? alpha : 0.0);
+}
+
+// With multisampling: the frame so far, copied into the multisampled target.
+struct FullOut { float4 pos [[position]]; };
+vertex FullOut vs_full(uint vid [[vertex_id]])
+{
+    FullOut o;
+    o.pos = float4(vid == 1 ? 3.0 : -1.0, vid == 2 ? 3.0 : -1.0, 0.0, 1.0);
+    return o;
+}
+fragment float4 fs_copy(FullOut in [[stage_in]], texture2d<float> src [[texture(0)]], sampler s [[sampler(0)]])
+{
+    return src.read(uint2(in.pos.xy));
 }
 )";
 
@@ -176,7 +190,7 @@ int pipelineIndex(Blend blend, bool noZ) { return int(blend) * 2 + (noZ ? 1 : 0)
 constexpr int kPipelines = 6;
 
 struct Batch {
-    int tex;  // -1: untextured (white)
+    SDL_GPUTexture *tex;  // null: untextured (white)
     int pipeline;
     Uint32 first, count;
 };
@@ -194,7 +208,7 @@ struct AtlasRect {
 class GpuBackend final : public RenderBackend {
 public:
     ~GpuBackend() override;
-    bool init(SDL_GPUDevice *device, GpuScreen *screen);
+    bool init(SDL_GPUDevice *device, GpuScreen *screen, const GpuSettings &settings);
 
     void begin(Surface &dst, const RenderFrame &frame) override;
     void clearDepth() override { m_clearDepth = true; }
@@ -210,18 +224,29 @@ private:
     void releaseScene();
     void syncResources();
     void uploadTextures(size_t from);
+    SDL_GPUTexture *texture(int tex, int variant);
+    SDL_GPUTexture *makeSampled(const uint32_t *px, int w, int h);
     void buildAtlas();
     Geometry build(const std::vector<DrawPoly> &polys, const DrawPass &pass);
     SDL_GPUBuffer *upload(const std::vector<GpuVert> &verts);
-    SDL_GPUTexture *makeTexture(SDL_GPUTextureFormat format, Uint32 usage, int w, int h);
-    void uploadTexture(SDL_GPUTexture *tex, const void *data, int w, int h, int bytesPerTexel);
+    SDL_GPUTexture *makeTexture(SDL_GPUTextureFormat format, Uint32 usage, int w, int h, int levels = 1,
+                                SDL_GPUSampleCount samples = SDL_GPU_SAMPLECOUNT_1);
+    void uploadTexture(SDL_GPUTexture *tex, const void *data, int w, int h, int bytesPerTexel, bool mipmaps = false);
+    void copyBackground();
     void applyScreenAdd();
 
     SDL_GPUDevice *m_device = nullptr;
     bool m_ownsDevice = false;
     GpuScreen *m_screen = nullptr;
+    GpuSettings m_settings;
+    SDL_GPUSampleCount m_samples = SDL_GPU_SAMPLECOUNT_1;
+    SDL_GPUGraphicsPipeline *m_background = nullptr;  // copies the frame into m_msaa
     bool m_direct = false;               // this frame draws into the GPU screen
     SDL_GPUTexture *m_target = nullptr;  // m_color, or the screen's texture
+    int m_tw = 0, m_th = 0;              // its size; m_depth's and m_msaa's
+    float m_scale = 1;                   // its pixels per surface pixel
+    SDL_GPUTexture *m_msaa = nullptr;    // multisampled colour, resolved into m_target
+    bool m_msaaReady = false;            // m_msaa holds this frame
     SDL_GPUGraphicsPipeline *m_pipelines[kPipelines] = {};
     SDL_GPUSampler *m_texSampler = nullptr, *m_lmSampler = nullptr;
     SDL_GPUTexture *m_white = nullptr;
@@ -239,6 +264,7 @@ private:
     // What the scene's resources look like on the GPU.
     uint64_t m_generation = ~uint64_t(0);
     std::vector<SDL_GPUTexture *> m_textures;
+    std::map<std::pair<int, int>, SDL_GPUTexture *> m_variants;  // smooth: (texture, 1 keyed / 2 masked)
     SDL_GPUTexture *m_atlas = nullptr;
     int m_atlasW = 1, m_atlasH = 1;
     std::vector<AtlasRect> m_atlasRects;
@@ -255,6 +281,8 @@ GpuBackend::~GpuBackend()
     releaseScene();
     if (m_color) SDL_ReleaseGPUTexture(m_device, m_color);
     if (m_depth) SDL_ReleaseGPUTexture(m_device, m_depth);
+    if (m_msaa) SDL_ReleaseGPUTexture(m_device, m_msaa);
+    if (m_background) SDL_ReleaseGPUGraphicsPipeline(m_device, m_background);
     if (m_white) SDL_ReleaseGPUTexture(m_device, m_white);
     if (m_texSampler) SDL_ReleaseGPUSampler(m_device, m_texSampler);
     if (m_lmSampler) SDL_ReleaseGPUSampler(m_device, m_lmSampler);
@@ -266,10 +294,11 @@ GpuBackend::~GpuBackend()
     }
 }
 
-bool GpuBackend::init(SDL_GPUDevice *device, GpuScreen *screen)
+bool GpuBackend::init(SDL_GPUDevice *device, GpuScreen *screen, const GpuSettings &settings)
 {
     m_device = device;
     m_screen = screen;
+    m_settings = settings;
     if (!m_device) {
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return false;  // SDL's GPU devices need it
         m_ownsDevice = true;
@@ -280,6 +309,15 @@ bool GpuBackend::init(SDL_GPUDevice *device, GpuScreen *screen)
         SDL_SetError("the GPU device doesn't take MSL shaders");
         return false;
     }
+
+    m_samples = settings.msaa >= 8   ? SDL_GPU_SAMPLECOUNT_8
+                : settings.msaa >= 4 ? SDL_GPU_SAMPLECOUNT_4
+                : settings.msaa >= 2 ? SDL_GPU_SAMPLECOUNT_2
+                                     : SDL_GPU_SAMPLECOUNT_1;
+    while (m_samples != SDL_GPU_SAMPLECOUNT_1 &&
+           !(SDL_GPUTextureSupportsSampleCount(m_device, SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM, m_samples) &&
+             SDL_GPUTextureSupportsSampleCount(m_device, SDL_GPU_TEXTUREFORMAT_D32_FLOAT, m_samples)))
+        m_samples = SDL_GPUSampleCount(int(m_samples) - 1);
 
     SDL_GPUShaderCreateInfo si{};
     si.code = reinterpret_cast<const Uint8 *>(kShaderMSL);
@@ -327,6 +365,7 @@ bool GpuBackend::init(SDL_GPUDevice *device, GpuScreen *screen)
     pi.target_info.num_color_targets = 1;
     pi.target_info.has_depth_stencil_target = true;
     pi.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
+    pi.multisample_state.sample_count = m_samples;
     bool ok = true;
     for (Blend blend : {Opaque, Alpha, Additive})
         for (bool noZ : {false, true}) {
@@ -353,11 +392,46 @@ bool GpuBackend::init(SDL_GPUDevice *device, GpuScreen *screen)
     SDL_ReleaseGPUShader(m_device, fs);
     if (!ok) return false;
 
+    if (m_samples != SDL_GPU_SAMPLECOUNT_1) {
+        si.entrypoint = "vs_full";
+        si.stage = SDL_GPU_SHADERSTAGE_VERTEX;
+        si.num_uniform_buffers = 0;
+        si.num_samplers = 0;
+        vs = SDL_CreateGPUShader(m_device, &si);
+        si.entrypoint = "fs_copy";
+        si.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
+        si.num_samplers = 1;
+        fs = SDL_CreateGPUShader(m_device, &si);
+        SDL_GPUGraphicsPipelineCreateInfo bp{};
+        ct.blend_state = {};
+        bp.vertex_shader = vs;
+        bp.fragment_shader = fs;
+        bp.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+        bp.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+        bp.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+        bp.multisample_state.sample_count = m_samples;
+        bp.target_info.color_target_descriptions = &ct;
+        bp.target_info.num_color_targets = 1;
+        if (vs && fs) m_background = SDL_CreateGPUGraphicsPipeline(m_device, &bp);
+        if (vs) SDL_ReleaseGPUShader(m_device, vs);
+        if (fs) SDL_ReleaseGPUShader(m_device, fs);
+        if (!m_background) return false;
+    }
+
     SDL_GPUSamplerCreateInfo smp{};
-    smp.min_filter = smp.mag_filter = SDL_GPU_FILTER_NEAREST;  // the software look, for now
-    smp.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
     smp.address_mode_u = smp.address_mode_v = smp.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+    if (settings.smoothTextures) {
+        smp.min_filter = smp.mag_filter = SDL_GPU_FILTER_LINEAR;
+        smp.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_LINEAR;
+        smp.max_lod = 1000;
+        smp.enable_anisotropy = true;
+        smp.max_anisotropy = 8;
+    } else {  // the software look
+        smp.min_filter = smp.mag_filter = SDL_GPU_FILTER_NEAREST;
+        smp.mipmap_mode = SDL_GPU_SAMPLERMIPMAPMODE_NEAREST;
+    }
     m_texSampler = SDL_CreateGPUSampler(m_device, &smp);
+    smp = {};
     smp.min_filter = smp.mag_filter = SDL_GPU_FILTER_LINEAR;
     smp.address_mode_u = smp.address_mode_v = smp.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     m_lmSampler = SDL_CreateGPUSampler(m_device, &smp);
@@ -368,7 +442,8 @@ bool GpuBackend::init(SDL_GPUDevice *device, GpuScreen *screen)
     return m_texSampler && m_lmSampler && m_white;
 }
 
-SDL_GPUTexture *GpuBackend::makeTexture(SDL_GPUTextureFormat format, Uint32 usage, int w, int h)
+SDL_GPUTexture *GpuBackend::makeTexture(SDL_GPUTextureFormat format, Uint32 usage, int w, int h, int levels,
+                                        SDL_GPUSampleCount samples)
 {
     SDL_GPUTextureCreateInfo ti{};
     ti.type = SDL_GPU_TEXTURETYPE_2D;
@@ -377,12 +452,13 @@ SDL_GPUTexture *GpuBackend::makeTexture(SDL_GPUTextureFormat format, Uint32 usag
     ti.width = Uint32(std::max(w, 1));
     ti.height = Uint32(std::max(h, 1));
     ti.layer_count_or_depth = 1;
-    ti.num_levels = 1;
+    ti.num_levels = Uint32(levels);
+    ti.sample_count = samples;
     return SDL_CreateGPUTexture(m_device, &ti);
 }
 
 // Uploads on a command buffer of its own, ahead of the frame's.
-void GpuBackend::uploadTexture(SDL_GPUTexture *tex, const void *data, int w, int h, int bytesPerTexel)
+void GpuBackend::uploadTexture(SDL_GPUTexture *tex, const void *data, int w, int h, int bytesPerTexel, bool mipmaps)
 {
     const Uint32 bytes = Uint32(w) * Uint32(h) * Uint32(bytesPerTexel);
     SDL_GPUTransferBufferCreateInfo bi{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, bytes, 0};
@@ -402,6 +478,7 @@ void GpuBackend::uploadTexture(SDL_GPUTexture *tex, const void *data, int w, int
     dst.d = 1;
     SDL_UploadToGPUTexture(copy, &src, &dst, false);
     SDL_EndGPUCopyPass(copy);
+    if (mipmaps) SDL_GenerateMipmapsForGPUTexture(cmd, tex);
     if (cmd != m_cmd) SDL_SubmitGPUCommandBuffer(cmd);
     SDL_ReleaseGPUTransferBuffer(m_device, tb);  // freed once the GPU is done with it
 }
@@ -411,6 +488,9 @@ void GpuBackend::releaseScene()
     for (SDL_GPUTexture *t : m_textures)
         if (t) SDL_ReleaseGPUTexture(m_device, t);
     m_textures.clear();
+    for (auto &kv : m_variants)
+        if (kv.second) SDL_ReleaseGPUTexture(m_device, kv.second);
+    m_variants.clear();
     if (m_atlas) SDL_ReleaseGPUTexture(m_device, m_atlas);
     m_atlas = nullptr;
     m_atlasRects.clear();
@@ -435,11 +515,70 @@ void GpuBackend::uploadTextures(size_t from)
     const RenderResources &res = *m_frame.res;
     for (size_t i = from; i < res.textures.size(); ++i) {
         const RenderTexture &t = res.textures[i];
-        // 0xAARRGGBB words are B, G, R, A in memory.
-        SDL_GPUTexture *tex = makeTexture(SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, t.w, t.h);
-        if (tex && t.px.size() == size_t(t.w) * size_t(t.h)) uploadTexture(tex, t.px.data(), t.w, t.h, 4);
-        m_textures.push_back(tex);
+        m_textures.push_back(t.px.size() == size_t(t.w) * size_t(t.h) ? makeSampled(t.px.data(), t.w, t.h) : nullptr);
     }
+}
+
+// A texture from 0xAARRGGBB words (B, G, R, A in memory); mipmapped for
+// smooth filtering.
+SDL_GPUTexture *GpuBackend::makeSampled(const uint32_t *px, int w, int h)
+{
+    int levels = 1;
+    Uint32 usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+    if (m_settings.smoothTextures) {
+        while ((std::max(w, h) >> levels) > 0) ++levels;
+        usage |= SDL_GPU_TEXTUREUSAGE_COLOR_TARGET;  // mipmap generation draws into it
+    }
+    SDL_GPUTexture *tex = makeTexture(SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM, usage, w, h, levels);
+    if (tex) uploadTexture(tex, px, w, h, 4, levels > 1);
+    return tex;
+}
+
+// Smooth filtering blends neighbouring texels, so a texture whose see-through
+// texels matter gets a copy with them as alpha 0 (variant 1: black, colour
+// keyed; 2: the mask), their colour taken from the nearest kept texels so
+// edges don't darken. Made the first time a polygon needs it.
+SDL_GPUTexture *GpuBackend::texture(int tex, int variant)
+{
+    if (tex < 0 || size_t(tex) >= m_textures.size()) return nullptr;
+    if (variant == 0) return m_textures[size_t(tex)];
+    auto it = m_variants.find({tex, variant});
+    if (it != m_variants.end()) return it->second;
+    const RenderTexture &t = m_frame.res->textures[size_t(tex)];
+    const int w = t.w, h = t.h;
+    if (t.px.size() != size_t(w) * size_t(h)) return m_variants[{tex, variant}] = nullptr;
+    std::vector<uint32_t> px(t.px);
+    std::vector<uint8_t> kept(px.size());
+    for (size_t i = 0; i < px.size(); ++i) {
+        uint32_t a = variant == 1 ? ((px[i] & 0xFFFFFF) ? 255u : 0u) : px[i] >> 24;
+        px[i] = (px[i] & 0xFFFFFF) | a << 24;
+        kept[i] = a > 0;
+    }
+    for (int ring = 0; ring < 8; ++ring) {  // grow the kept colours outwards (wrapping, as the texture repeats)
+        std::vector<uint8_t> next(kept);
+        bool grew = false;
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                const size_t i = size_t(y) * size_t(w) + size_t(x);
+                if (kept[i]) continue;
+                uint32_t sum[3] = {0, 0, 0}, n = 0;
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const size_t j = size_t((y + dy + h) % h) * size_t(w) + size_t((x + dx + w) % w);
+                        if (!kept[j]) continue;
+                        for (int c = 0; c < 3; ++c) sum[c] += px[j] >> (c * 8) & 255;
+                        ++n;
+                    }
+                if (!n) continue;
+                px[i] &= 0xFF000000;
+                for (int c = 0; c < 3; ++c) px[i] |= (sum[c] / n) << (c * 8);
+                next[i] = 1;
+                grew = true;
+            }
+        kept.swap(next);
+        if (!grew) break;
+    }
+    return m_variants[{tex, variant}] = makeSampled(px.data(), w, h);
 }
 
 // Packs every lightmap into one RGBA16F texture, in shelves, a texel apart.
@@ -529,6 +668,12 @@ Geometry GpuBackend::build(const std::vector<DrawPoly> &polys, const DrawPass &p
         AtlasRect lm;
         if (!pass.sky && p->lightmap >= 0 && size_t(p->lightmap) < m_atlasRects.size()) lm = m_atlasRects[size_t(p->lightmap)];
         const float lit = p->lit && !pass.sky ? 1.0f : 0.0f;
+        int variant = 0;
+        if (m_settings.smoothTextures && t) {
+            if (t->hasAlpha && (p->colorKey || p->blend != Opaque)) variant = 2;
+            else if (p->colorKey) variant = 1;
+        }
+        SDL_GPUTexture *texture = this->texture(tex, variant);
         uint32_t flags = 0;
         if (t && t->hasAlpha) flags |= kHasAlpha;
         if (p->colorKey) flags |= kColorKey;
@@ -540,8 +685,8 @@ Geometry GpuBackend::build(const std::vector<DrawPoly> &polys, const DrawPass &p
         const Vec3 &n = p->normal, &v0 = p->verts[0].p;
         const float nd = n.x * v0.x + n.y * v0.y + n.z * v0.z;
         const int pipe = pipelineIndex(it.blend, p->noZ);
-        if (geo.batches.empty() || geo.batches.back().tex != tex || geo.batches.back().pipeline != pipe)
-            geo.batches.push_back({tex, pipe, Uint32(verts.size()), 0});
+        if (geo.batches.empty() || geo.batches.back().tex != texture || geo.batches.back().pipeline != pipe)
+            geo.batches.push_back({texture, pipe, Uint32(verts.size()), 0});
         auto vert = [&](const DrawVert &v) {
             verts.push_back({v.p.x, v.p.y, v.p.z, v.u, v.v, v.r, v.g, v.b, v.lu, v.lv, float(lm.x), float(lm.y),
                              float(lm.w), float(lm.h), tw, th, lit, p->sphereCenter.x, p->sphereCenter.y,
@@ -590,35 +735,72 @@ void GpuBackend::begin(Surface &dst, const RenderFrame &frame)
     m_dst = &dst;
     m_frame = frame;
     m_hasScreenAdd = false;
+    m_msaaReady = false;
     m_direct = m_screen && m_screen->isScreen(dst);
+    int tw = dst.width, th = dst.height;
+    m_scale = 1;
     if (m_direct) {
-        m_cmd = m_screen->beginExternal(dst, &m_target);
+        const GpuScreen::External e = m_screen->beginExternal(dst);
+        m_cmd = e.cmd;
+        m_target = e.texture;
+        tw = e.w;
+        th = e.h;
+        m_scale = e.scale;
     } else {
         m_cmd = SDL_AcquireGPUCommandBuffer(m_device);
+        if (m_cmd && (!m_color || m_w != dst.width || m_h != dst.height)) {
+            if (m_color) SDL_ReleaseGPUTexture(m_device, m_color);
+            m_color = makeTexture(SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM,
+                                  SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER, dst.width,
+                                  dst.height);
+            m_w = dst.width;
+            m_h = dst.height;
+        }
+        m_target = m_color;
     }
-    if (!m_cmd) return;
-    if (!m_color || m_w != dst.width || m_h != dst.height) {
-        if (m_color) SDL_ReleaseGPUTexture(m_device, m_color);
+    if (!m_cmd || !m_target) return;
+    if (!m_depth || m_tw != tw || m_th != th) {
         if (m_depth) SDL_ReleaseGPUTexture(m_device, m_depth);
-        m_color = makeTexture(SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM,
-                              SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER, dst.width, dst.height);
-        m_depth = makeTexture(SDL_GPU_TEXTUREFORMAT_D32_FLOAT, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET, dst.width,
-                              dst.height);
-        m_w = dst.width;
-        m_h = dst.height;
+        if (m_msaa) SDL_ReleaseGPUTexture(m_device, m_msaa);
+        m_depth = makeTexture(SDL_GPU_TEXTUREFORMAT_D32_FLOAT, SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET, tw, th, 1,
+                              m_samples);
+        m_msaa = m_samples == SDL_GPU_SAMPLECOUNT_1
+                     ? nullptr
+                     : makeTexture(SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM, SDL_GPU_TEXTUREUSAGE_COLOR_TARGET, tw, th, 1,
+                                   m_samples);
+        m_tw = tw;
+        m_th = th;
     }
     m_clearDepth = true;
-    if (m_direct) return;
-    m_target = m_color;
     // What's already on the surface stays under the 3D.
-    uploadTexture(m_color, dst.pixels.data(), dst.width, dst.height, 4);
+    if (!m_direct) uploadTexture(m_color, dst.pixels.data(), dst.width, dst.height, 4);
+}
+
+// The frame so far, into the multisampled target, before its first polygons.
+void GpuBackend::copyBackground()
+{
+    SDL_GPUColorTargetInfo ct{};
+    ct.texture = m_msaa;
+    ct.load_op = SDL_GPU_LOADOP_DONT_CARE;
+    ct.store_op = SDL_GPU_STOREOP_STORE;
+    SDL_GPURenderPass *rp = SDL_BeginGPURenderPass(m_cmd, &ct, 1, nullptr);
+    SDL_BindGPUGraphicsPipeline(rp, m_background);
+    SDL_GPUTextureSamplerBinding sb{m_target, m_texSampler};
+    SDL_BindGPUFragmentSamplers(rp, 0, &sb, 1);
+    SDL_DrawGPUPrimitives(rp, 3, 1, 0, 0);
+    SDL_EndGPURenderPass(rp);
+    m_msaaReady = true;
 }
 
 void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
 {
-    if (!m_cmd || !m_target || !m_depth || polys.empty()) return;
+    if (!m_cmd || !m_target || !m_depth || (m_samples != SDL_GPU_SAMPLECOUNT_1 && !m_msaa) || polys.empty()) return;
     syncResources();
-    const DRect vp = viewport(m_frame.cam, m_w, m_h);
+    // The camera's rect on the surface, in the target's pixels.
+    const DRect sv = viewport(m_frame.cam, m_dst->width, m_dst->height);
+    const DRect vp{int(std::lround(sv.left * m_scale)), int(std::lround(sv.top * m_scale)),
+                   std::min(m_tw, int(std::lround(sv.right * m_scale))),
+                   std::min(m_th, int(std::lround(sv.bottom * m_scale)))};
     const float vw = float(vp.right - vp.left), vh = float(vp.bottom - vp.top);
     if (vw <= 0 || vh <= 0) return;
 
@@ -657,9 +839,11 @@ void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
     fu.atlasInv[0] = 1.0f / float(m_atlasW);
     fu.atlasInv[1] = 1.0f / float(m_atlasH);
     fu.atlasInv[2] = float(nLights);
+    fu.atlasInv[3] = m_settings.smoothTextures ? 1.0f : 0.0f;
 
+    if (m_msaa && !m_msaaReady) copyBackground();
     SDL_GPUColorTargetInfo ct{};
-    ct.texture = m_target;
+    ct.texture = m_msaa ? m_msaa : m_target;
     ct.load_op = SDL_GPU_LOADOP_LOAD;
     ct.store_op = SDL_GPU_STOREOP_STORE;
     SDL_GPUDepthStencilTargetInfo dt{};
@@ -686,9 +870,7 @@ void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
             SDL_BindGPUGraphicsPipeline(rp, m_pipelines[batch.pipeline]);
             bound = batch.pipeline;
         }
-        SDL_GPUTexture *tex = batch.tex >= 0 && size_t(batch.tex) < m_textures.size() && m_textures[size_t(batch.tex)]
-                                  ? m_textures[size_t(batch.tex)]
-                                  : m_white;
+        SDL_GPUTexture *tex = batch.tex ? batch.tex : m_white;
         SDL_GPUTextureSamplerBinding sb[2] = {{tex, m_texSampler}, {m_atlas ? m_atlas : m_white, m_lmSampler}};
         SDL_BindGPUFragmentSamplers(rp, 0, sb, 2);
         SDL_DrawGPUPrimitives(rp, batch.count, 1, batch.first, 0);
@@ -722,6 +904,15 @@ void GpuBackend::applyScreenAdd()
 void GpuBackend::end()
 {
     if (!m_cmd) return;
+    if (m_msaaReady) {  // resolve the samples into the frame
+        SDL_GPUColorTargetInfo ct{};
+        ct.texture = m_msaa;
+        ct.load_op = SDL_GPU_LOADOP_LOAD;
+        ct.store_op = SDL_GPU_STOREOP_RESOLVE;
+        ct.resolve_texture = m_target;
+        SDL_EndGPURenderPass(SDL_BeginGPURenderPass(m_cmd, &ct, 1, nullptr));
+        m_msaaReady = false;
+    }
     if (m_direct) {  // the screen submits its command buffer
         m_cmd = nullptr;
         if (m_hasScreenAdd) applyScreenAdd();
@@ -763,10 +954,10 @@ void GpuBackend::end()
 
 }  // namespace
 
-std::unique_ptr<RenderBackend> makeGpuBackend(SDL_GPUDevice *device, GpuScreen *screen)
+std::unique_ptr<RenderBackend> makeGpuBackend(SDL_GPUDevice *device, GpuScreen *screen, const GpuSettings &settings)
 {
     auto backend = std::make_unique<GpuBackend>();
-    if (!backend->init(device, screen)) {
+    if (!backend->init(device, screen, settings)) {
         SDL_Log("GPU renderer: %s", SDL_GetError());
         return nullptr;
     }

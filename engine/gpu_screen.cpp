@@ -42,9 +42,11 @@ struct Op {
     float4 f1;   // warp: d, e, f; transform: scale x, y, half w, h
     float4 add;  // add: rgb / 255
     float4 poly[5];
+    int4 rect;   // the screen pixels drawn
+    float4 sc;   // x, z: screen pixels per target pixel; y, w: down, source pixels per target pixel
 };
 
-constant int kFill = 0, kBlit = 1, kScale = 2, kWarp = 3, kTransform = 4, kMasked = 5, kAdd = 6;
+constant int kFill = 0, kBlit = 1, kScale = 2, kWarp = 3, kTransform = 4, kMasked = 5, kAdd = 6, kDown = 7;
 constant int kCopy = 0, kTransparent = 1;
 
 uint pack(float4 c)
@@ -77,8 +79,11 @@ fragment float4 fs_2d(VOut in [[stage_in]], constant Op &o [[buffer(0)]],
                       texture2d<float> src [[texture(0)]], sampler s0 [[sampler(0)]],
                       texture2d<float> msk [[texture(1)]], sampler s1 [[sampler(1)]])
 {
-    int x = int(in.pos.x), y = int(in.pos.y);
     int kind = o.a.x, w = o.a.z, h = o.a.w;
+    if (kind == kDown) return src.read(uint2(floor(in.pos.xy * o.sc.yw)));
+    // The screen pixel this texture pixel shows.
+    int x = int(floor(in.pos.x * o.sc.x)), y = int(floor(in.pos.y * o.sc.z));
+    if (x < o.rect.x || x >= o.rect.z || y < o.rect.y || y >= o.rect.w) discard_fragment();
     if (kind == kFill) return unpack(o.b.y);
     if (kind == kAdd) return o.add;
     int sx = 0, sy = 0;
@@ -90,7 +95,7 @@ fragment float4 fs_2d(VOut in [[stage_in]], constant Op &o [[buffer(0)]],
         sx = o.i1.x + ((x - o.i0.x) * o.i1.z) / o.i0.z;
         if (sy < 0 || sy >= h || sx < 0 || sx >= w) discard_fragment();
     } else {
-        float fx = in.pos.x, fy = in.pos.y;
+        float fx = float(x) + 0.5, fy = float(y) + 0.5;
         if (!covered(o, fx, fy, x)) discard_fragment();
         if (kind == kWarp) {
             sx = clamp(int(o.f0.x * fx + o.f0.y * fy + o.f0.z), 0, w - 1);
@@ -113,7 +118,7 @@ fragment float4 fs_2d(VOut in [[stage_in]], constant Op &o [[buffer(0)]],
 }
 )";
 
-enum Kind { kFill, kBlit, kScale, kWarp, kTransform, kMasked, kAdd };
+enum Kind { kFill, kBlit, kScale, kWarp, kTransform, kMasked, kAdd, kDown };
 
 const SDL_GPUTextureFormat kFormat = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM;  // XRGB8888 in memory
 const uint64_t kEvictAfter = 120;                                          // frames unused
@@ -142,6 +147,8 @@ struct GpuScreen::Op {
     float f1[4] = {};
     float add[4] = {};
     float poly[20] = {};
+    int32_t rect[4] = {};
+    float sc[4] = {1, 1, 0, 0};
 };
 
 std::unique_ptr<GpuScreen> GpuScreen::create(GpuPresenter *presenter)
@@ -231,9 +238,7 @@ GpuScreen::~GpuScreen()
         SDL_WaitForGPUIdle(m_device);
         if (m_lastFrame) SDL_ReleaseGPUFence(m_device, m_lastFrame);
         for (auto &kv : m_cache) SDL_ReleaseGPUTexture(m_device, kv.second.tex);
-        if (m_tex) SDL_ReleaseGPUTexture(m_device, m_tex);
-        if (m_up) SDL_ReleaseGPUTransferBuffer(m_device, m_up);
-        if (m_down) SDL_ReleaseGPUTransferBuffer(m_device, m_down);
+        release();
         if (m_dummy) SDL_ReleaseGPUTexture(m_device, m_dummy);
         if (m_sampler) SDL_ReleaseGPUSampler(m_device, m_sampler);
         if (m_copy) SDL_ReleaseGPUGraphicsPipeline(m_device, m_copy);
@@ -261,14 +266,14 @@ void GpuScreen::upload(SDL_GPUTexture *tex, const Surface &s)
 {
     const Uint32 bytes = Uint32(s.width) * Uint32(s.height) * 4;
     SDL_GPUTransferBuffer *tb = nullptr;
-    if (tex == m_tex) {
+    if (tex == m_tex || tex == m_low) {
         tb = m_up;
     } else {
         SDL_GPUTransferBufferCreateInfo bi{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, bytes, 0};
         tb = SDL_CreateGPUTransferBuffer(m_device, &bi);
     }
     if (!tb || !cmd()) return;
-    if (void *p = SDL_MapGPUTransferBuffer(m_device, tb, tex == m_tex)) {
+    if (void *p = SDL_MapGPUTransferBuffer(m_device, tb, tb == m_up)) {
         memcpy(p, s.pixels.data(), bytes);
         SDL_UnmapGPUTransferBuffer(m_device, tb);
     }
@@ -285,44 +290,71 @@ void GpuScreen::upload(SDL_GPUTexture *tex, const Surface &s)
     if (tb != m_up) SDL_ReleaseGPUTransferBuffer(m_device, tb);  // freed once the GPU is done with it
 }
 
+void GpuScreen::release()
+{
+    if (m_tex) SDL_ReleaseGPUTexture(m_device, m_tex);
+    if (m_low) SDL_ReleaseGPUTexture(m_device, m_low);
+    if (m_up) SDL_ReleaseGPUTransferBuffer(m_device, m_up);
+    if (m_down) SDL_ReleaseGPUTransferBuffer(m_device, m_down);
+    m_tex = m_low = nullptr;
+    m_up = m_down = nullptr;
+}
+
 void GpuScreen::sync(Surface &screen)
 {
-    if (screen.id != m_screenId || screen.width != m_w || screen.height != m_h) {
-        // A new screen (a mode change): start from its CPU contents.
+    if (m_rescale || screen.id != m_screenId || screen.width != m_w || screen.height != m_h) {
+        // A new screen (a mode change) or scale: start from its CPU contents.
         endPass();
         if (m_cmd) {
             SDL_SubmitGPUCommandBuffer(m_cmd);
             m_cmd = nullptr;
         }
         SDL_WaitForGPUIdle(m_device);
-        if (m_tex) SDL_ReleaseGPUTexture(m_device, m_tex);
-        if (m_up) SDL_ReleaseGPUTransferBuffer(m_device, m_up);
-        if (m_down) SDL_ReleaseGPUTransferBuffer(m_device, m_down);
-        m_tex = nullptr;
-        m_up = m_down = nullptr;
+        release();
+        m_rescale = false;
         m_screenId = screen.id;
         m_w = screen.width;
         m_h = screen.height;
+        m_tw = std::max(1, int(std::lround(double(m_w) * m_scale)));
+        m_th = std::max(1, int(std::lround(double(m_h) * m_scale)));
         m_state = State::CPU;
         if (m_w <= 0 || m_h <= 0) return;
         SDL_GPUTextureCreateInfo ti{};
         ti.type = SDL_GPU_TEXTURETYPE_2D;
         ti.format = kFormat;
         ti.usage = SDL_GPU_TEXTUREUSAGE_COLOR_TARGET | SDL_GPU_TEXTUREUSAGE_SAMPLER;
-        ti.width = Uint32(m_w);
-        ti.height = Uint32(m_h);
+        ti.width = Uint32(m_tw);
+        ti.height = Uint32(m_th);
         ti.layer_count_or_depth = 1;
         ti.num_levels = 1;
         m_tex = SDL_CreateGPUTexture(m_device, &ti);
+        if (m_tw != m_w || m_th != m_h) {
+            ti.width = Uint32(m_w);
+            ti.height = Uint32(m_h);
+            m_low = SDL_CreateGPUTexture(m_device, &ti);
+        }
         const Uint32 bytes = Uint32(m_w) * Uint32(m_h) * 4;
         SDL_GPUTransferBufferCreateInfo bi{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, bytes, 0};
         m_up = SDL_CreateGPUTransferBuffer(m_device, &bi);
         bi.usage = SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD;
         m_down = SDL_CreateGPUTransferBuffer(m_device, &bi);
-        if (!m_tex || !m_up || !m_down) SDL_Log("GPU screen texture: %s", SDL_GetError());
+        if (!m_tex || !m_up || !m_down || (m_tw != m_w && !m_low)) {
+            SDL_Log("GPU screen texture: %s", SDL_GetError());
+            release();
+        }
     }
-    if (m_state == State::CPU && m_tex && m_up) {
-        upload(m_tex, screen);
+    if (m_state == State::CPU && m_tex) {
+        if (m_low) {  // up at screen size, then out in blocks
+            upload(m_low, screen);
+            Op op;
+            op.a[0] = kBlit;
+            op.a[2] = m_w;
+            op.a[3] = m_h;
+            drawTo(m_tex, DRect{0, 0, m_w, m_h}, op, m_low, m_dummy, false);
+            endPass();
+        } else {
+            upload(m_tex, screen);
+        }
         ++m_screenUploads;
         m_state = State::Both;
     }
@@ -360,7 +392,7 @@ SDL_GPUTexture *GpuScreen::source(const Surface &s)
     return c.tex;
 }
 
-void GpuScreen::draw(Surface &screen, const DRect &r, const Op &op, const Surface *src, const Surface *mask,
+void GpuScreen::draw(Surface &screen, const DRect &r, Op &op, const Surface *src, const Surface *mask,
                      bool additive)
 {
     if (r.right <= r.left || r.bottom <= r.top) return;
@@ -368,10 +400,22 @@ void GpuScreen::draw(Surface &screen, const DRect &r, const Op &op, const Surfac
     if (!m_tex) return;
     SDL_GPUTexture *srcTex = src ? source(*src) : m_dummy;
     SDL_GPUTexture *maskTex = mask ? source(*mask) : m_dummy;
-    if (!srcTex || !maskTex || !cmd()) return;
+    if (!srcTex || !maskTex) return;
+    drawTo(m_tex, r, op, srcTex, maskTex, additive);
+    m_state = State::GPU;
+}
+
+// Draws op over rect (screen pixels) into target (the screen texture, or the
+// screen-sized one). A pass on target stays open for the next draws.
+void GpuScreen::drawTo(SDL_GPUTexture *target, const DRect &r, Op &op, SDL_GPUTexture *srcTex,
+                       SDL_GPUTexture *maskTex, bool additive)
+{
+    if (!cmd()) return;
+    if (m_pass && target != m_passTarget) endPass();
     if (!m_pass) {
+        m_passTarget = target;
         SDL_GPUColorTargetInfo ct{};
-        ct.texture = m_tex;
+        ct.texture = target;
         ct.load_op = SDL_GPU_LOADOP_LOAD;
         ct.store_op = SDL_GPU_STOREOP_STORE;
         m_pass = SDL_BeginGPURenderPass(m_cmd, &ct, 1, nullptr);
@@ -382,14 +426,22 @@ void GpuScreen::draw(Surface &screen, const DRect &r, const Op &op, const Surfac
         SDL_BindGPUGraphicsPipeline(m_pass, pipe);
         m_bound = pipe;
     }
-    const float rect[8] = {float(r.left), float(r.top), float(r.right), float(r.bottom), float(m_w), float(m_h), 0, 0};
+    op.rect[0] = r.left;
+    op.rect[1] = r.top;
+    op.rect[2] = r.right;
+    op.rect[3] = r.bottom;
+    op.sc[0] = target == m_tex ? float(m_w) / float(m_tw) : 1.0f;
+    op.sc[2] = target == m_tex ? float(m_h) / float(m_th) : 1.0f;
+    // Half a pixel larger all round: the shader decides each pixel by the
+    // screen pixel it shows, so edges don't depend on rasterizer rounding.
+    const float rect[8] = {float(r.left) - 0.5f, float(r.top) - 0.5f, float(r.right) + 0.5f, float(r.bottom) + 0.5f,
+                           float(m_w), float(m_h), 0, 0};
     SDL_PushGPUVertexUniformData(m_cmd, 0, rect, sizeof rect);
     SDL_PushGPUFragmentUniformData(m_cmd, 0, &op, sizeof op);
     SDL_GPUTextureSamplerBinding sb[2] = {{srcTex, m_sampler}, {maskTex, m_sampler}};
     SDL_BindGPUFragmentSamplers(m_pass, 0, sb, 2);
     SDL_DrawGPUPrimitives(m_pass, 6, 1, 0, 0);
     ++m_draws;
-    m_state = State::GPU;
 }
 
 void GpuScreen::fill(Surface &screen, const DRect *rect, uint32_t color)
@@ -552,28 +604,39 @@ void GpuScreen::maskedBlit(Surface &screen, const Surface &src, const Surface &m
     draw(screen, clampRect(d, screen), op, &src, &mask);
 }
 
-SDL_GPUCommandBuffer *GpuScreen::beginExternal(Surface &screen, SDL_GPUTexture **texture)
+GpuScreen::External GpuScreen::beginExternal(Surface &screen)
 {
     sync(screen);
     endPass();
-    *texture = m_tex;
-    if (!m_tex) return nullptr;
+    External e;
+    if (!m_tex || !cmd()) return e;
     m_state = State::GPU;
-    return cmd();
+    e.cmd = m_cmd;
+    e.texture = m_tex;
+    e.w = m_tw;
+    e.h = m_th;
+    e.scale = float(m_tw) / float(m_w);
+    return e;
 }
 
-void GpuScreen::toCPU(Surface &screen)
+// Copies tex (w x h) into out, waiting for the GPU.
+void GpuScreen::download(SDL_GPUTexture *tex, int w, int h, uint32_t *out)
 {
-    sync(screen);
-    if (m_state != State::GPU || !m_tex || !m_down || !cmd()) return;
+    const Uint32 bytes = Uint32(w) * Uint32(h) * 4;
+    SDL_GPUTransferBuffer *tb = m_down;
+    if (w != m_w || h != m_h) {
+        SDL_GPUTransferBufferCreateInfo bi{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, bytes, 0};
+        tb = SDL_CreateGPUTransferBuffer(m_device, &bi);
+    }
+    if (!tb || !cmd()) return;
     endPass();
     SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(m_cmd);
     SDL_GPUTextureRegion from{};
-    from.texture = m_tex;
-    from.w = Uint32(m_w);
-    from.h = Uint32(m_h);
+    from.texture = tex;
+    from.w = Uint32(w);
+    from.h = Uint32(h);
     from.d = 1;
-    SDL_GPUTextureTransferInfo to{m_down, 0, Uint32(m_w), Uint32(m_h)};
+    SDL_GPUTextureTransferInfo to{tb, 0, Uint32(w), Uint32(h)};
     SDL_DownloadFromGPUTexture(copy, &from, &to);
     SDL_EndGPUCopyPass(copy);
     SDL_GPUFence *fence = SDL_SubmitGPUCommandBufferAndAcquireFence(m_cmd);
@@ -582,13 +645,38 @@ void GpuScreen::toCPU(Surface &screen)
         SDL_WaitForGPUFences(m_device, true, &fence, 1);
         SDL_ReleaseGPUFence(m_device, fence);
     }
-    if (const void *p = SDL_MapGPUTransferBuffer(m_device, m_down, false)) {
-        memcpy(screen.pixels.data(), p, size_t(m_w) * size_t(m_h) * 4);
-        SDL_UnmapGPUTransferBuffer(m_device, m_down);
+    if (const void *p = SDL_MapGPUTransferBuffer(m_device, tb, false)) {
+        memcpy(out, p, bytes);
+        SDL_UnmapGPUTransferBuffer(m_device, tb);
+    }
+    if (tb != m_down) SDL_ReleaseGPUTransferBuffer(m_device, tb);
+}
+
+void GpuScreen::toCPU(Surface &screen)
+{
+    sync(screen);
+    if (m_state != State::GPU || !m_tex) return;
+    if (m_low) {  // one texture pixel per screen pixel, into the screen-sized texture
+        Op op;
+        op.a[0] = kDown;
+        op.sc[1] = float(m_tw) / float(m_w);
+        op.sc[3] = float(m_th) / float(m_h);
+        drawTo(m_low, DRect{0, 0, m_w, m_h}, op, m_tex, m_dummy, false);
+        download(m_low, m_w, m_h, screen.pixels.data());
+    } else {
+        download(m_tex, m_w, m_h, screen.pixels.data());
     }
     screen.touch();
     m_state = State::Both;
     ++m_readbacks;
+}
+
+Surface GpuScreen::capture(Surface &screen)
+{
+    sync(screen);
+    Surface out(m_tw, m_th);
+    if (m_tex) download(m_tex, m_tw, m_th, out.pixels.data());
+    return out;
 }
 
 void GpuScreen::cpuWrites(Surface &screen)
@@ -602,7 +690,7 @@ void GpuScreen::present(Surface &screen)
     sync(screen);
     endPass();
     if (!cmd()) return;
-    if (m_presenter && m_tex) m_presenter->showTexture(m_cmd, m_tex, m_w, m_h);
+    if (m_presenter && m_tex) m_presenter->showTexture(m_cmd, m_tex, m_tw, m_th);
     // At most one frame in flight: wait for the previous one before queueing.
     if (m_lastFrame) {
         SDL_WaitForGPUFences(m_device, true, &m_lastFrame, 1);
@@ -616,6 +704,16 @@ void GpuScreen::present(Surface &screen)
                 (unsigned long long)m_frame, m_draws, m_uploads, m_readbacks, m_screenUploads);
     m_draws = m_uploads = m_readbacks = m_screenUploads = 0;
     ++m_frame;
+    if (m_wantScale != m_scale && m_w > 0) {
+        // A new size: keep the picture through the CPU copy.
+        const int tw = std::max(1, int(std::lround(double(m_w) * m_wantScale)));
+        const int th = std::max(1, int(std::lround(double(m_h) * m_wantScale)));
+        if (tw != m_tw || th != m_th) {
+            toCPU(screen);
+            m_rescale = true;
+        }
+        m_scale = m_wantScale;
+    }
     for (auto it = m_cache.begin(); it != m_cache.end();) {
         if (m_frame - it->second.lastUse > kEvictAfter) {
             SDL_ReleaseGPUTexture(m_device, it->second.tex);

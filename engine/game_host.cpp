@@ -100,6 +100,7 @@ bool GameHost::startClient(const char *path, int width, int height, std::string 
     if (!session.readConfigFile("autoexec.cfg")) fprintf(stderr, "[input] autoexec.cfg not found: no key bindings\n");
     else printf("[input] autoexec.cfg: %zu bindings\n", session.input.bindingCount());
     session.runCommandLine(commandLine);
+    if (onConfigured) onConfigured();
 
     auto setInstance = sym<void (*)(void *)>(lib, "SetInstanceHandle", err);
     auto getFns = sym<void (*)(CreateClientShellFn *, DeleteClientShellFn *)>(lib, "GetClientShellFunctions", err);

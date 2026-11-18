@@ -74,7 +74,7 @@ void fillMode(RMode &m, int w, int h)
     m.m_bHardware = DTRUE;
     strcpy(m.m_RenderDLL, "native");
     strcpy(m.m_InternalName, "native");
-    strcpy(m.m_Description, "Native renderer");
+    snprintf(m.m_Description, sizeof m.m_Description, "%s", g->rendererName.c_str());
     m.m_Width = (DDWORD)w;
     m.m_Height = (DDWORD)h;
     m.m_BitDepth = 16;

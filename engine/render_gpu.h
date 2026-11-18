@@ -20,10 +20,21 @@ namespace shogo {
 
 class GpuScreen;
 
+// Quality settings. The defaults are the software renderer's look.
+struct GpuSettings {
+    // Bilinear, mipmapped and anisotropic texture filtering, see-through
+    // edges included; off: nearest texels, as the software renderer.
+    bool smoothTextures = false;
+    // Samples per pixel (1, 2, 4 or 8), lowered to what the GPU supports.
+    int msaa = 1;
+};
+
 // device: shared with the window's presenter (not owned), or null for a
 // device of its own (headless tools). screen: the GPU screen on that device,
-// drawn into directly when it's the target. Null when there's no usable GPU.
-std::unique_ptr<RenderBackend> makeGpuBackend(SDL_GPUDevice *device = nullptr, GpuScreen *screen = nullptr);
+// drawn into directly (at its resolution) when it's the target. Null when
+// there's no usable GPU.
+std::unique_ptr<RenderBackend> makeGpuBackend(SDL_GPUDevice *device = nullptr, GpuScreen *screen = nullptr,
+                                              const GpuSettings &settings = {});
 
 }  // namespace shogo
 

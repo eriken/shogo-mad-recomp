@@ -204,13 +204,50 @@ void SDLCALL onPicked(void *user, const char *const *files, int)
     p->path = files[0];
 }
 
-enum Row { RowPlay, RowIntros, RowImport, RowQuit, RowCount };
-const char *kRows[RowCount] = {"Play", "Intro movies", "Import from GOG...", "Quit"};
+enum Row { RowPlay, RowIntros, RowRenderer, RowTextures, RowMSAA, RowResolution, RowImport, RowQuit, RowCount };
+const char *kRows[RowCount] = {"Play",          "Intro movies", "Renderer", "Textures",
+                               "Anti-aliasing", "Resolution",   "Import from GOG...", "Quit"};
+const int kMSAA[] = {1, 2, 4, 8};
 
 // The launcher's settings: ~/Library/Application Support/Shogo Recomp/launcher.cfg,
-// "name value" lines.
+// "name value" lines. The graphics ones go to the game as console variables.
 struct Settings {
     bool introMovies = true;  // the Monolith logo and the intro before the menu
+    bool metal = true;        // the GPU renderer; off: software
+    bool smoothTextures = true;
+    int msaa = 4;                   // samples per pixel
+    bool nativeResolution = true;   // 3D at the window's pixel size
+
+    bool isOption(int row) const { return row >= RowIntros && row <= RowResolution; }
+    bool enabled(int row) const { return row < RowTextures || row > RowResolution || metal; }
+    // Steps an option row's value (dir -1 or +1).
+    void step(int row, int dir)
+    {
+        switch (row) {
+        case RowIntros: introMovies = !introMovies; break;
+        case RowRenderer: metal = !metal; break;
+        case RowTextures: smoothTextures = !smoothTextures; break;
+        case RowMSAA: {
+            int i = 0;
+            while (i < 3 && kMSAA[i] < msaa) ++i;
+            msaa = kMSAA[(i + dir + 4) % 4];
+            break;
+        }
+        case RowResolution: nativeResolution = !nativeResolution; break;
+        default: break;
+        }
+    }
+    std::string value(int row) const
+    {
+        switch (row) {
+        case RowIntros: return introMovies ? "On" : "Off";
+        case RowRenderer: return metal ? "Metal" : "Software";
+        case RowTextures: return smoothTextures ? "Smooth" : "Sharp";
+        case RowMSAA: return msaa > 1 ? std::to_string(msaa) + "x" : "Off";
+        case RowResolution: return nativeResolution ? "Native" : "Original";
+        default: return "";
+        }
+    }
 };
 std::string settingsPath()
 {
@@ -223,8 +260,13 @@ Settings loadSettings()
     if (FILE *f = fopen(settingsPath().c_str(), "r")) {
         char name[64];
         int value = 0;
-        while (fscanf(f, "%63s %d", name, &value) == 2)
+        while (fscanf(f, "%63s %d", name, &value) == 2) {
             if (!strcmp(name, "introMovies")) s.introMovies = value != 0;
+            else if (!strcmp(name, "metal")) s.metal = value != 0;
+            else if (!strcmp(name, "smoothTextures")) s.smoothTextures = value != 0;
+            else if (!strcmp(name, "msaa")) s.msaa = value;
+            else if (!strcmp(name, "nativeResolution")) s.nativeResolution = value != 0;
+        }
         fclose(f);
     }
     return s;
@@ -235,11 +277,12 @@ void saveSettings(const Settings &s)
     std::string dir = path.substr(0, path.rfind('/'));
     mkdir(dir.c_str(), 0755);
     if (FILE *f = fopen(path.c_str(), "w")) {
-        fprintf(f, "introMovies %d\n", s.introMovies ? 1 : 0);
+        fprintf(f, "introMovies %d\nmetal %d\nsmoothTextures %d\nmsaa %d\nnativeResolution %d\n", s.introMovies ? 1 : 0,
+                s.metal ? 1 : 0, s.smoothTextures ? 1 : 0, s.msaa, s.nativeResolution ? 1 : 0);
         fclose(f);
     }
 }
-const float kRowX = kArtW + 12, kRowY = 132, kRowH = 40, kRowW = kW - kArtW - 24;
+const float kRowX = kArtW + 12, kRowY = 112, kRowH = 32, kRowW = kW - kArtW - 24;
 
 }  // namespace
 
@@ -331,6 +374,9 @@ int runLauncher(const std::string &exe)
             }
             std::vector<std::string> args = {exe, "--play"};
             if (!settings.introMovies) args.insert(args.end(), {"+DisableMovies", "1"});
+            args.insert(args.end(), {"+RenderBackend", settings.metal ? "metal" : "software", "+TextureFilter",
+                                     settings.smoothTextures ? "1" : "0", "+MSAA", std::to_string(settings.msaa),
+                                     "+NativeResolution", settings.nativeResolution ? "1" : "0"});
             std::vector<char *> argv;
             for (std::string &a : args) argv.push_back(a.data());
             argv.push_back(nullptr);
@@ -345,7 +391,12 @@ int runLauncher(const std::string &exe)
             break;
         }
         case RowIntros:
-            settings.introMovies = !settings.introMovies;
+        case RowRenderer:
+        case RowTextures:
+        case RowMSAA:
+        case RowResolution:
+            if (!settings.enabled(row)) break;
+            settings.step(row, 1);
             saveSettings(settings);
             break;
         case RowImport: {
@@ -393,8 +444,11 @@ int runLauncher(const std::string &exe)
                 else if (e.key.key == SDLK_DOWN) selected = (selected + 1) % RowCount;
                 else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_SPACE)
                     running = choose(selected) && running;
-                else if ((e.key.key == SDLK_LEFT || e.key.key == SDLK_RIGHT) && selected == RowIntros)
-                    choose(RowIntros);
+                else if ((e.key.key == SDLK_LEFT || e.key.key == SDLK_RIGHT) && settings.isOption(selected) &&
+                         settings.enabled(selected)) {
+                    settings.step(selected, e.key.key == SDLK_LEFT ? -1 : 1);
+                    saveSettings(settings);
+                }
                 else if (e.key.key == SDLK_ESCAPE) running = false;
                 break;
             case SDL_EVENT_MOUSE_MOTION: {
@@ -470,13 +524,15 @@ int runLauncher(const std::string &exe)
         for (int i = 0; i < RowCount; ++i) {
             float y = kRowY + i * kRowH;
             bool sel = i == selected;
-            bool disabled = (i == RowPlay && !ready) || (i != RowQuit && importer.busy());
+            bool disabled = (i == RowPlay && !ready) || (i != RowQuit && importer.busy()) || !settings.enabled(i);
             if (sel) fill(renderer, kRowX, y - 10, kRowW, kRowH - 4, kRowHi);
             if (sel) text(renderer, kRowX + 8, y, ">", 2, kAccent);
             text(renderer, kRowX + 32, y, kRows[i], 2, disabled ? kDim : sel ? kGold : kText);
-            if (i == RowIntros)
-                text(renderer, kRowX + kRowW - 7 * 16 - 8, y, settings.introMovies ? "< On  >" : "< Off >", 2,
-                     sel ? kGold : kText);
+            if (settings.isOption(i)) {
+                std::string v = "< " + settings.value(i) + " >";
+                text(renderer, kRowX + kRowW - float(v.size()) * 16 - 8, y, v, 2,
+                     disabled ? kDim : sel ? kGold : kText);
+            }
         }
         float y = kRowY + RowCount * kRowH + 12;
         if (importer.busy()) {
@@ -498,6 +554,14 @@ int runLauncher(const std::string &exe)
                 paragraph(renderer, kPanelX, y,
                           "The Monolith logo and the intro movie before the main menu. In the game, Escape skips them.",
                           kDim);
+            static const char *const kHelp[RowCount] = {
+                nullptr, nullptr,
+                "Metal draws with the GPU. Software is the 1998 renderer's look, on the CPU.",
+                "Smooth filters textures. Sharp shows each texel, as the software renderer.",
+                "Smooths the edges of 3D polygons. Off, 2x, 4x or 8x samples per pixel.",
+                "Native draws 3D at the window's full resolution. Original: the game's own, scaled up.",
+                nullptr, nullptr};
+            if (kHelp[selected]) paragraph(renderer, kPanelX, y, kHelp[selected], kDim);
             if (selected == RowImport)
                 paragraph(renderer, kPanelX, y,
                           "Pick setup_shogo_-_mobile_armor_division_*.exe from GOG, or drop it on this window. "

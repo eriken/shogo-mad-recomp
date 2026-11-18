@@ -14,6 +14,8 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
+
 #include <mach-o/dyld.h>
 #include <unistd.h>
 
@@ -220,19 +222,44 @@ int main(int argc, char **argv)
         SDL_RenderPresent(renderer);
     };
 
-    // SHOGO_RENDERER=gpu: the screen lives on the GPU; the world and the 2D
-    // drawing go straight into it.
-    if (const char *r = getenv("SHOGO_RENDERER"); r && !strcmp(r, "gpu") && gpu.device()) {
+    // Graphics settings (console variables: autoexec.cfg, or the launcher's
+    // command line):
+    //   RenderBackend "metal" | "software"  Metal: the screen lives on the GPU and
+    //                                   the world and 2D drawing go straight in
+    //   TextureFilter 1 | 0             smooth (mipmapped) or sharp textures
+    //   MSAA 4                          samples per pixel: 1, 2, 4 or 8
+    //   NativeResolution 1 | 0          3D at the window's pixel size, or the
+    //                                   game's resolution scaled up
+    // SHOGO_RENDERER=gpu|software overrides RenderBackend.
+    bool nativeResolution = false;
+    host.onConfigured = [&] {
+        auto var = [&](const char *name) { return host.session.vars.find(name); };
+        auto number = [&](const char *name, float def) {
+            const auto *v = var(name);
+            return v && !v->value.empty() ? v->number : def;
+        };
+        std::string which = var("RenderBackend") ? var("RenderBackend")->value : "metal";
+        for (char &c : which) c = char(tolower((unsigned char)c));
+        if (const char *e = getenv("SHOGO_RENDERER")) which = strcmp(e, "software") ? "metal" : "software";
+        if (which == "software" || !gpu.device()) return;
+        shogo::GpuSettings settings;
+        settings.smoothTextures = number("TextureFilter", 1) != 0;
+        settings.msaa = int(number("MSAA", 4));
         gpuScreen = shogo::GpuScreen::create(&gpu);
-        auto backend = gpuScreen ? shogo::makeGpuBackend(gpu.device(), gpuScreen.get()) : nullptr;
-        if (backend) {
-            host.session.renderer.setBackend(std::move(backend));
-            host.client.screenTarget = gpuScreen.get();
-            host.client.rendererOnScreenTarget = true;
-        } else {
+        auto backend = gpuScreen ? shogo::makeGpuBackend(gpu.device(), gpuScreen.get(), settings) : nullptr;
+        if (!backend) {
             gpuScreen.reset();
+            fprintf(stderr, "Metal renderer unavailable; drawing in software\n");
+            return;
         }
-    }
+        host.session.renderer.setBackend(std::move(backend));
+        host.client.screenTarget = gpuScreen.get();
+        host.client.rendererOnScreenTarget = true;
+        host.client.rendererName = "Metal";
+        nativeResolution = number("NativeResolution", 1) != 0;
+        printf("Renderer: Metal (textures %s, MSAA %d, %s resolution)\n", settings.smoothTextures ? "smooth" : "sharp",
+               settings.msaa, nativeResolution ? "native" : "game");
+    };
 
     std::string err;
     if (!host.mountGameData(&err) || !host.loadServer(objectPath.c_str(), &err) ||
@@ -286,6 +313,18 @@ int main(int argc, char **argv)
         Uint64 now = SDL_GetTicksNS();
         double dt = double(now - last) / 1e9;
         last = now;
+        if (gpuScreen && host.client.screen) {
+            // The 3D at the window's pixel size: as many texture pixels per
+            // screen pixel as fit.
+            float scale = 1;
+            if (nativeResolution) {
+                int pw = 0, ph = 0;
+                SDL_GetWindowSizeInPixels(window, &pw, &ph);
+                scale = std::min(float(pw) / float(host.client.screen->width),
+                                 float(ph) / float(host.client.screen->height));
+            }
+            gpuScreen->setScale(scale);
+        }
         host.frame(dt > 0.25 ? 0.25 : dt);
         if (audio) {
             const int ahead = shogo::Mixer::kRate * 6 / 100;  // frames

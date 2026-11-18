@@ -6,6 +6,7 @@
 #include "engine/client_api.h"
 #include "engine/client_game.h"
 
+#include <functional>
 #include <string>
 
 namespace shogo {
@@ -23,6 +24,9 @@ public:
     void *serverModule = nullptr;  // object.lto.dylib, for callers that want more exports
     // "+name value" settings from the command line: run after autoexec.cfg.
     std::vector<std::string> commandLine;
+    // Called by startClient once autoexec.cfg and the command line are in
+    // session.vars, before the client shell starts (renderer settings).
+    std::function<void()> onConfigured;
 
     // Mounts SHOGO.REZ (+ ShogoP.rez) from the working directory and loads the string DLLs.
     bool mountGameData(std::string *err);

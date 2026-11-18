@@ -7,6 +7,10 @@
 // changes are uploaded again before the next GPU drawing. 2D drawing follows
 // surfaces.cpp pixel for pixel: same clipping, same nearest source texel,
 // same 565 colour key.
+//
+// The texture can be larger than the screen (setScale): 2D drawing is then
+// worked out per screen pixel and shown as blocks, while the world renderer
+// draws at the texture's full resolution. The CPU copy stays screen-sized.
 #ifndef SHOGO_ENGINE_GPU_SCREEN_H
 #define SHOGO_ENGINE_GPU_SCREEN_H
 
@@ -51,12 +55,24 @@ public:
     void cpuWrites(Surface &screen) override;
     void present(Surface &screen) override;
 
+    // Texture pixels per screen pixel (>= 1), from the next frame on.
+    void setScale(float scale) { m_wantScale = scale < 1 ? 1 : scale; }
+    float scale() const { return m_scale; }
+    // The texture as it is, at its full resolution (screenshots).
+    Surface capture(Surface &screen);
+
     // For the GPU world renderer, drawing straight into the screen: true when
     // s is the screen this draws to (the last one it saw).
     bool isScreen(const Surface &s) const { return m_screenId != 0 && s.id == m_screenId; }
-    // Hands out the frame's command buffer and the screen texture, current
-    // and with no 2D pass open; what's drawn into it counts from then on.
-    SDL_GPUCommandBuffer *beginExternal(Surface &screen, SDL_GPUTexture **texture);
+    // The frame's command buffer and the screen texture, current and with no
+    // 2D pass open; what's drawn into it counts from then on.
+    struct External {
+        SDL_GPUCommandBuffer *cmd = nullptr;
+        SDL_GPUTexture *texture = nullptr;
+        int w = 0, h = 0;   // the texture's size
+        float scale = 1;    // its pixels per screen pixel
+    };
+    External beginExternal(Surface &screen);
     // Adds rgb (0..255 each, saturating) inside rect, like the CPU screen tint.
     void add(Surface &screen, const DRect &rect, const uint32_t rgb[3]);
 
@@ -73,10 +89,14 @@ private:
     SDL_GPUCommandBuffer *cmd();
     void endPass();
     void sync(Surface &screen);  // the screen texture exists and is current
+    void release();
     SDL_GPUTexture *source(const Surface &s);
-    void draw(Surface &screen, const DRect &rect, const Op &op, const Surface *src, const Surface *mask,
+    void draw(Surface &screen, const DRect &rect, Op &op, const Surface *src, const Surface *mask,
               bool additive = false);
+    void drawTo(SDL_GPUTexture *target, const DRect &rect, Op &op, SDL_GPUTexture *src,
+                SDL_GPUTexture *mask, bool additive);
     void upload(SDL_GPUTexture *tex, const Surface &s);
+    void download(SDL_GPUTexture *tex, int w, int h, uint32_t *out);
 
     enum class State { CPU, GPU, Both };  // which copy of the screen is current
 
@@ -87,14 +107,18 @@ private:
     SDL_GPUSampler *m_sampler = nullptr;
     SDL_GPUTexture *m_dummy = nullptr;
 
-    SDL_GPUTexture *m_tex = nullptr;
+    SDL_GPUTexture *m_tex = nullptr;  // m_tw x m_th
+    SDL_GPUTexture *m_low = nullptr;  // screen-sized, when scaled: uploads and read-backs pass through it
     SDL_GPUTransferBuffer *m_up = nullptr, *m_down = nullptr;
     uint64_t m_screenId = 0;
-    int m_w = 0, m_h = 0;
+    int m_w = 0, m_h = 0, m_tw = 0, m_th = 0;
+    float m_scale = 1, m_wantScale = 1;
+    bool m_rescale = false;  // remake the texture at m_scale
     State m_state = State::CPU;
 
     SDL_GPUCommandBuffer *m_cmd = nullptr;
     SDL_GPURenderPass *m_pass = nullptr;
+    SDL_GPUTexture *m_passTarget = nullptr;
     SDL_GPUGraphicsPipeline *m_bound = nullptr;
     SDL_GPUFence *m_lastFrame = nullptr;
     uint64_t m_frame = 0;
