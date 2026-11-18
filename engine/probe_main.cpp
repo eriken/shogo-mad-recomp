@@ -2,7 +2,7 @@
 // (real functions where implemented, logging stubs elsewhere), drives startup
 // and a number of headless frames, and reports which engine calls the game made.
 //
-// Usage: shogo-probe [+var value ...] [--frames N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
+// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
 //                    <object.lto.dylib> <cshell.dylib>
 // Run it from the extracted game folder.
 #include "engine/game_host.h"
@@ -72,6 +72,7 @@ int main(int argc, char **argv)
     std::vector<Trigger> triggers;  // a "TRIGGER" message from the player to named objects
     std::vector<const char *> paths;
     std::vector<std::string> conVars;  // "+name value" pairs, set before the game starts
+    bool movies = false;               // play the intro movies (otherwise skipped, so key timings stay put)
     for (int i = 1; i < argc; ++i) {
         if (argv[i][0] == '+' && i + 1 < argc) {
             conVars.push_back(std::string(argv[i] + 1) + " \"" + argv[i + 1] + "\"");
@@ -81,6 +82,7 @@ int main(int argc, char **argv)
         if (!strcmp(argv[i], "--frames") && i + 1 < argc) frames = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) screenshot = argv[++i];
         else if (!strcmp(argv[i], "--audio-out") && i + 1 < argc) audioOut = argv[++i];
+        else if (!strcmp(argv[i], "--movies")) movies = true;
         else if (!strcmp(argv[i], "--key") && i + 1 < argc) {
             int vk = 0, at = 0;
             if (sscanf(argv[++i], "%i@%d", &vk, &at) == 2) keys.push_back({vk, at});
@@ -105,6 +107,7 @@ int main(int argc, char **argv)
     for (int s : {SIGSEGV, SIGBUS, SIGABRT, SIGILL}) signal(s, onCrash);
     setvbuf(stdout, nullptr, _IONBF, 0);
 
+    if (!movies) conVars.insert(conVars.begin(), "DisableMovies \"1\"");
     shogo::GameHost host;
     for (const std::string &v : conVars) host.session.vars.run(v);
     std::string err;

@@ -1,5 +1,6 @@
 #include "engine/client_api.h"
 
+#include "engine/movie.h"
 #include "engine/stub_support.h"
 
 #include <cstdarg>
@@ -391,13 +392,39 @@ DRESULT getEngineHook(char *name, void **data)
 float getTime() { return (float)g->time; }
 float getFrameTime() { return (float)g->frameTime; }
 
-// No Smacker player yet: failing StartVideo makes the game skip its intro movies.
+// Smacker movies (the logo and intro). Failing StartVideo makes the game skip a movie.
+MoviePlayer &movie()
+{
+    static MoviePlayer m;
+    return m;
+}
+
 DRESULT startVideo(char *name, DDWORD)
 {
-    printf("[video] not supported yet, skipping %s\n", name ? name : "(null)");
-    return LT_ERROR;
+    std::string err;
+    if (!movie().start(name, &err)) {
+        printf("[video] can't play %s: %s\n", name ? name : "(null)", err.c_str());
+        return VIDEO_ERROR;
+    }
+    printf("[video] playing %s\n", name);
+    return LT_OK;
 }
-DRESULT isVideoPlaying() { return VIDEO_NOTPLAYING; }
+
+DRESULT stopVideo()
+{
+    if (!movie().playing()) return LT_ERROR;
+    movie().stop();
+    return LT_OK;
+}
+
+// Draws the frame due now onto the screen; the game's PostUpdate flips it.
+DRESULT updateVideo()
+{
+    movie().update(g->time, *g->screen);
+    return LT_OK;
+}
+
+DRESULT isVideoPlaying() { return movie().playing() ? VIDEO_PLAYING : VIDEO_NOTPLAYING; }
 
 void shutdownNow()
 {
@@ -421,7 +448,8 @@ void installClientAPI(ClientDE *c, ClientContext *ctx, int screenWidth, int scre
     c->GetTime = getTime;
     c->GetFrameTime = getFrameTime;
     c->StartVideo = startVideo;
-    c->UpdateVideo = ok;
+    c->StopVideo = stopVideo;
+    c->UpdateVideo = updateVideo;
     c->IsVideoPlaying = isVideoPlaying;
 
     c->GetRenderModes = getRenderModes;

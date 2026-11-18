@@ -123,6 +123,7 @@ add_library(shogo_engine STATIC
     engine/model.cpp
     engine/effects.cpp
     engine/sound.cpp
+    engine/smacker.cpp engine/movie.cpp
     engine/stub_support.cpp "${SHOGO_STUBS_CPP}")
 target_include_directories(shogo_engine PUBLIC "${CMAKE_SOURCE_DIR}")
 target_link_libraries(shogo_engine PUBLIC shogo_game_flags

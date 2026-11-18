@@ -14,6 +14,7 @@
 #include "engine/model.h"
 #include "engine/effects.h"
 #include "engine/sound.h"
+#include "engine/smacker.h"
 #include "engine/objects.h"
 #include "engine/server.h"
 #include "engine/stub_support.h"
@@ -739,8 +740,55 @@ static void testSprites(const shogo::ResourceFS &fs)
     printf("  textures: %zu of %zu have an alpha mask\n", withAlpha, total);
 }
 
+// The logo movie: every frame decodes, the picture isn't empty, and the
+// soundtrack lasts as long as the pictures and joins up across frames.
+static void testMovies(const std::string &dir)
+{
+    shogo::SmackerVideo v;
+    std::string err;
+    if (!v.open(dir + "/logo.smk", &err)) {
+        printf("  logo.smk: %s, skipped\n", err.c_str());
+        return;
+    }
+    CHECK(v.width() == 320 && v.height() == 240 && v.frameCount() == 366);
+    CHECK(std::fabs(v.frameDuration() - 1.0 / 15) < 1e-3);
+    CHECK(v.audioRate() == 22050 && v.audioChannels() == 2);
+    size_t samples = 0, lit = 0;
+    double jump = 0, step = 0;
+    size_t jumps = 0, steps = 0;
+    int16_t prev = 0;
+    while (v.nextFrame()) {
+        const std::vector<int16_t> &a = v.audio();
+        if (a.size() >= 4) {
+            if (samples) jump += std::abs(a[0] - prev), ++jumps;
+            for (size_t i = 2; i < a.size(); i += 2) step += std::abs(a[i] - a[i - 2]), ++steps;
+            prev = a[a.size() - 2];
+        }
+        samples += a.size() / 2;
+        if (v.frameIndex() == 150)
+            for (uint8_t c : v.image()) lit += (v.palette()[c] & 0xFF) > 0x40;
+    }
+    CHECK(v.frameIndex() == 365);
+    CHECK(std::fabs(double(samples) / 22050 - 366.0 / 15) < 0.5);
+    CHECK(lit > 5000);
+    // A wrong first sample per chunk would show up as jumps far above a normal step.
+    CHECK(jumps > 100 && jump / double(jumps) < 2 * step / double(steps));
+    printf("  logo.smk: %zu audio frames, %zu lit pixels in frame 150\n", samples, lit);
+
+    // The soundtrack stream: 22 kHz in, 44.1 kHz out, then drained.
+    shogo::Mixer m;
+    std::vector<int16_t> tone(2205 * 2, 8000);
+    m.streamPush(tone.data(), 2205, 22050);
+    std::vector<int16_t> out(4410 * 2);
+    m.mix(out.data(), 4410);
+    CHECK(out[100] > 7000 && out[101] > 7000 && m.streamQueued() == 0);
+    m.mix(out.data(), 100);
+    CHECK(out[50] == 0);
+}
+
 static void testGameData(const std::string &dir)
 {
+    testMovies(dir);
     shogo::ResourceFS fs;
     std::string err;
     CHECK(fs.addArchive(dir + "/SHOGO.REZ", &err));

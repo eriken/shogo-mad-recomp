@@ -178,6 +178,32 @@ void Mixer::clear()
     m_voices.clear();
 }
 
+void Mixer::streamPush(const int16_t *stereo, size_t frames, int rate)
+{
+    if (rate != m_streamRate) streamStop();
+    m_streamRate = rate;
+    // Drop what has been played before adding more.
+    size_t played = size_t(m_streamPos);
+    if (played > 0) {
+        m_stream.erase(m_stream.begin(), m_stream.begin() + ptrdiff_t(std::min(played * 2, m_stream.size())));
+        m_streamPos -= double(played);
+    }
+    m_stream.insert(m_stream.end(), stereo, stereo + frames * 2);
+}
+
+void Mixer::streamStop()
+{
+    m_stream.clear();
+    m_streamPos = 0;
+    m_streamRate = 0;
+}
+
+size_t Mixer::streamQueued() const
+{
+    size_t total = m_stream.size() / 2, played = size_t(m_streamPos);
+    return total > played ? total - played : 0;
+}
+
 void Mixer::gains(const Voice &v, float &l, float &r) const
 {
     l = r = v.volume;
@@ -237,6 +263,20 @@ void Mixer::mix(int16_t *out, int frames)
         // Finished fire-and-forget sounds go away; handle sounds wait for KillSound.
         m_voices.erase(std::remove_if(m_voices.begin(), m_voices.end(), [](const Voice &v) { return v.done && !v.keep; }),
                        m_voices.end());
+    }
+    if (m_streamRate > 0 && !m_stream.empty()) {
+        const size_t n = m_stream.size() / 2;
+        const double step = double(m_streamRate) / kRate;
+        for (int i = 0; i < frames && m_streamPos < double(n); ++i) {
+            size_t i0 = size_t(m_streamPos);
+            size_t i1 = i0 + 1 < n ? i0 + 1 : i0;
+            float t = float(m_streamPos - double(i0));
+            for (int c = 0; c < 2; ++c) {
+                float a = m_stream[i0 * 2 + size_t(c)], b = m_stream[i1 * 2 + size_t(c)];
+                m_acc[size_t(i) * 2 + size_t(c)] += (a + (b - a) * t) * (1.0f / 32768.0f);
+            }
+            m_streamPos += step;
+        }
     }
     const float master = m_volume / 100.0f;
     for (size_t i = 0; i < m_acc.size(); ++i) {

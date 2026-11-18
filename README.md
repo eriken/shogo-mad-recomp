@@ -15,7 +15,7 @@ This repository contains **only our own code**. You supply two things yourself:
 | Piece | State |
 |---|---|
 | Server game code (`OBJECT.LTO`, 129 files) | Builds natively for arm64; registers all 343 object classes |
-| Client game code (`CSHELL.DLL`, 89 files) | Builds natively for arm64; front-end menus work, and **New Game** loads the first level |
+| Client game code (`CSHELL.DLL`, 89 files) | Builds natively for arm64; the logo and intro movies play, front-end menus work, and **New Game** loads the first level |
 | Engine: resources | `.REZ` archives (with patch-archive layering) and the string/`TEXT` resources in `CRES.DLL`/`SRES.DLL`, read as data |
 | Engine: strings | Real `HSTRING` API on client and server: ref counting, `FormatString` with `%1!s!` inserts |
 | Engine: 2D | Software 32-bit surfaces: PCX loading, copy/color-key/solid-color/scaled/warped/rotated/masked blits, fills, pixels, border detection (keys compared at RGB565 precision) |
@@ -31,8 +31,9 @@ This repository contains **only our own code**. You supply two things yourself:
 | Engine: effects | Sprites (`.SPR` animations, camera-facing or rotatable, additive or color-keyed, shaped by the DTX alpha mask), particle systems (the game's `DEParticle` lists, gravity, lifetimes) and line systems; muzzle flashes, impacts, smoke, shell casings. Particle size is a guess (`kParticleWorldScale`) |
 | Engine: lights | Dynamic lights (`OT_LIGHT` objects: muzzle flashes, projectiles, explosions, flickering level lights) add light per pixel to the world polygons they reach and per vertex to models; `SetGlobalLightScale` tints the baked light, `SetCameraLightAdd` tints the screen (damage flashes) |
 | Engine: sound | Sound effects from `SOUND.REZ` (all PCM WAV): a software mixer at 44.1 kHz stereo with local, ambient and 3D sounds (inner/outer radius falloff, left/right pan), loops, sounds attached to objects, handles (`KillSound`, `IsSoundDone`...), volume, a soft limiter; SDL3 output in the game, `--audio-out` in the probe. No reverb or doppler |
+| Engine: movies | Smacker (`.SMK`) movies for the startup logo and intro: our own decoder (palette updates, mono/full/skip/fill blocks, Huffman-coded DPCM sound), full screen and paced by the game clock, interlaced movies shown with their blank lines like the original player, the soundtrack streamed through the mixer; Escape skips. `+DisableMovies 1` skips them |
 | Engine: saves | Quick save/load (F6/F7), the save and load menus, the level-start reload save, and level changes that carry the player over (`SaveObjects`/`RestoreObjects` in our own file format, object references remapped on load, inter-object links, client references so the player is put back into its saved object, the game console's per-level settings). Shogo's original `.sav` files aren't read; portal states aren't saved |
-| Engine: not yet | Music (DirectMusic data: DLS banks, styles, segments; the game is told there's no music driver), Smacker movies (intros are skipped), networking |
+| Engine: not yet | Music (DirectMusic data: DLS banks, styles, segments; the game is told there's no music driver), networking |
 | Engine: everything else | Logging stubs (every `ClientDE`/`ServerDE` entry point), generated from the API headers |
 
 `ctest --test-dir build` runs the engine unit tests (game-data tests use `gamedata/`).
@@ -83,9 +84,14 @@ cd gamedata && ../build/shogo-modelview "Models\Player\sanjuro.abc" --list
 cd gamedata && ../build/shogo-modelview "Models\Player\sanjuro.abc" --skin "Skins\Player\sanjuro.dtx" \
     --anim RR --time 200 --yaw 30 --out /tmp/sanjuro.png
 
-# Or run the game headless: N frames, optional key presses (VK code @ frame), and a screenshot
+# Or run the game headless: N frames, optional key presses (VK code @ frame), and a screenshot.
+# The probe skips the startup movies unless you pass --movies (the logo runs to frame ~730)
 cd gamedata && ../build/shogo-probe --frames 40 --key 0x28@5 --key 0x0D@10 \
     --screenshot /tmp/menu.png ../build/object.lto.dylib ../build/cshell.dylib
+
+# The intro movie 20 seconds in (logo, then intro), with its soundtrack
+cd gamedata && ../build/shogo-probe --movies --frames 1330 --screenshot /tmp/intro.png --audio-out /tmp/intro.wav \
+    ../build/object.lto.dylib ../build/cshell.dylib
 
 # New Game headless: single player, normal, skip the intro, dismiss the briefing
 cd gamedata && ../build/shogo-probe --frames 160 --key 0x0D@10 --key 0x0D@20 --key 0x0D@30 \
@@ -184,6 +190,8 @@ Layers, from least to most invasive:
 | `engine/model.*` | `.ABC` models: parsing, posing, animation playback, node transforms, attachments |
 | `engine/math3d.*`, `engine/api_common.*` | Quaternion math; rotation helpers and `Parse` shared by both sides |
 | `engine/world_dat.*` | `.DAT` world reader (objects, BSPs, world models, lightmaps) |
+| `engine/smacker.*` | Smacker movie decoder (video and DPCM audio) |
+| `engine/movie.*` | Movie playback for `StartVideo`/`UpdateVideo`: pacing, full-screen drawing, the soundtrack |
 | `engine/savegame.*` | Saved games and level changes: `SaveObjects`, `RestoreObjects`, client references |
 | `engine/dtx.*` | DTX texture decoder |
 | `engine/render_world.*` | Software world renderer and sky box |

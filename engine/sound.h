@@ -56,6 +56,14 @@ public:
     // Drops everything (new world, shutdown).
     void clear();
 
+    // A soundtrack handed over as it is decoded (movies): 16-bit stereo
+    // (interleaved) at its own rate, played at full volume until drained.
+    // It keeps playing while the game's sounds are paused.
+    void streamPush(const int16_t *stereo, size_t frames, int rate);
+    void streamStop();
+    // Source frames queued and not yet played.
+    size_t streamQueued() const;
+
     // Fills frames stereo samples (interleaved L R).
     void mix(int16_t *out, int frames);
 
@@ -86,6 +94,9 @@ private:
     std::unordered_map<std::string, std::shared_ptr<SoundData>> m_cache;
     std::vector<Voice> m_voices;
     std::vector<float> m_acc;
+    std::vector<int16_t> m_stream;  // interleaved stereo
+    double m_streamPos = 0;         // in source frames
+    int m_streamRate = 0;
     uint32_t m_nextId = 1;
     size_t m_started = 0;
     int m_volume = 100;
