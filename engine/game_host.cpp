@@ -137,6 +137,13 @@ void GameHost::frame(double dt)
     clientShell->PostUpdate(clientShell);
 }
 
+void GameHost::stopClient()
+{
+    if (!clientShell || clientStopped) return;
+    clientStopped = true;
+    if (clientShell->OnEngineTerm) clientShell->OnEngineTerm(clientShell);
+}
+
 void GameHost::keyDown(int vk, int rep)
 {
     if (rep <= 1) session.input.keyDown(scanCodeFromVK(vk));

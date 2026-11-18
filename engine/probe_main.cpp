@@ -261,6 +261,7 @@ int main(int argc, char **argv)
         printf("Audio %s: %s (%.1f s, %zu sounds started, peak %d)\n", ok ? "written" : "FAILED", audioOut,
                audio.size() / 2.0 / shogo::Mixer::kRate, shogo::mixer().started(), peak);
     }
+    if (saveConfig) host.stopClient();
     if (saveConfig) printf("autoexec.cfg %s\n", host.session.writeConfigFile("autoexec.cfg") ? "saved" : "NOT saved");
     shogo_stub_print_summary(stdout);
     return 0;

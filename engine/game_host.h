@@ -20,6 +20,7 @@ public:
     ClientDE *clientDE = nullptr;
     ServerDE *serverDE = nullptr;
     ClientShellDE *clientShell = nullptr;
+    bool clientStopped = false;
     ServerShellDE *serverShell = nullptr;
     void *serverModule = nullptr;  // object.lto.dylib, for callers that want more exports
     // "+name value" settings from the command line: run after autoexec.cfg.
@@ -35,6 +36,10 @@ public:
     bool startClient(const char *path, int width, int height, std::string *err);
     // One game frame of dt seconds.
     void frame(double dt);
+    // Tells the game it's shutting down (OnEngineTerm, once): the menus
+    // write their settings back to console variables there, so call it
+    // before saving autoexec.cfg.
+    void stopClient();
     void keyDown(int vk, int rep);
     void keyUp(int vk);
     // Mouse: relative motion in pixels, DirectInput buttons (0 left, 1 right,

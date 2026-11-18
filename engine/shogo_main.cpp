@@ -341,7 +341,9 @@ int main(int argc, char **argv)
         }
     }
     if (audio) SDL_DestroyAudioStream(audio);
-    // Settings (display, sound, controls, keys) for next time.
+    // Settings (display, sound, controls, keys) for next time; the game
+    // writes its menu settings into console variables as it shuts down.
+    host.stopClient();
     if (!host.session.writeConfigFile("autoexec.cfg")) fprintf(stderr, "Couldn't save autoexec.cfg\n");
     if (!host.client.quitMessage.empty())
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Shogo", host.client.quitMessage.c_str(), window);
