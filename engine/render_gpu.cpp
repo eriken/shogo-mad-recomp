@@ -21,29 +21,49 @@ const char *kShaderMSL = R"(
 #include <metal_stdlib>
 using namespace metal;
 
+// Polygon flags (mode.y).
+constant uint kHasAlpha = 1;    // the texture has a mask
+constant uint kColorKey = 2;    // black texels are see-through
+constant uint kRound = 4;       // soft round falloff across the texture
+constant uint kMasked = 8;      // the polygon asked for blending: the mask applies
+constant uint kAlpha = 16;      // drawn alpha-blended
+constant uint kAdditive = 32;   // drawn additively
+
 struct VIn {
     float3 pos [[attribute(0)]];
     float2 uv [[attribute(1)]];      // texels
     float3 rgb [[attribute(2)]];
     float2 luv [[attribute(3)]];     // lightmap samples
     float4 lmRect [[attribute(4)]];  // lightmap's place in the atlas (texels); w = 0: none
-    float3 misc [[attribute(5)]];    // texture w, h; lit (takes the light scale)
+    float3 misc [[attribute(5)]];    // texture w, h; lit (light scale and dynamic lights)
+    float4 sphere [[attribute(6)]];  // bounding sphere (lit polygons pick lights by it)
+    float4 plane [[attribute(7)]];   // normal, distance
+    float2 mode [[attribute(8)]];    // alpha, flags
 };
 struct VOut {
     float4 pos [[position]];
+    float3 world;
     float2 uv;
     float3 rgb;
     float2 luv;
     float4 lmRect [[flat]];
     float lit [[flat]];
+    float4 sphere [[flat]];
+    float4 plane [[flat]];
+    float2 mode [[flat]];
 };
 struct VU {
     float4 right, up, fwd, eye;
     float4 proj;  // x scale, y scale, nearZ
 };
+struct Light {
+    float4 pos;    // xyz, radius
+    float4 color;  // rgb, skip backfacing
+};
 struct FU {
     float4 lightScale;
-    float4 atlasInv;  // 1 / atlas w, h
+    float4 atlasInv;  // 1 / atlas w, h; light count
+    Light lights[64];
 };
 
 vertex VOut vs_world(VIn in [[stage_in]], constant VU &u [[buffer(0)]])
@@ -52,29 +72,72 @@ vertex VOut vs_world(VIn in [[stage_in]], constant VU &u [[buffer(0)]])
     float x = dot(d, u.right.xyz), y = dot(d, u.up.xyz), z = dot(d, u.fwd.xyz);
     VOut o;
     o.pos = float4(x * u.proj.x, y * u.proj.y, u.proj.z, z);
+    o.world = in.pos;
     o.uv = in.uv / in.misc.xy;
     o.rgb = in.rgb;
     o.luv = in.luv;
     o.lmRect = in.lmRect;
     o.lit = in.misc.z;
+    o.sphere = in.sphere;
+    o.plane = in.plane;
+    o.mode = in.mode;
     return o;
 }
 
+// The software rasterizer's per-pixel rules (render_software.cpp).
 fragment float4 fs_world(VOut in [[stage_in]], constant FU &u [[buffer(0)]],
                          texture2d<float> tex [[texture(0)]], texture2d<float> lightmaps [[texture(1)]],
                          sampler texSampler [[sampler(0)]], sampler lmSampler [[sampler(1)]])
 {
+    const uint flags = uint(in.mode.y);
+    const bool blended = (flags & (kAlpha | kAdditive)) != 0;
     float3 light = in.rgb;
     if (in.lmRect.z > 0) {
         // Bilinear between the samples, clamped to this lightmap's own texels.
         float2 c = clamp(in.luv, float2(0), in.lmRect.zw - 1);
         light = lightmaps.sample(lmSampler, (in.lmRect.xy + c + 0.5) * u.atlasInv.xy).rgb;
     }
-    if (in.lit > 0) light *= u.lightScale.rgb;
+    if (in.lit > 0) {
+        light *= u.lightScale.rgb;
+        // The first 8 lights that reach the polygon, each fading out with distance.
+        int used = 0;
+        const int count = int(u.atlasInv.z);
+        for (int i = 0; i < count && used < 8; ++i) {
+            const Light L = u.lights[i];
+            float3 d = L.pos.xyz - in.sphere.xyz;
+            float reach = L.pos.w + in.sphere.w;
+            if (dot(d, d) > reach * reach) continue;
+            float side = dot(L.pos.xyz, in.plane.xyz) - in.plane.w;
+            if (fabs(side) > L.pos.w) continue;
+            if (L.color.w > 0 && side < 0) continue;
+            ++used;
+            float3 e = in.world - L.pos.xyz;
+            float d2 = dot(e, e);
+            if (d2 >= L.pos.w * L.pos.w) continue;
+            light += L.color.rgb * (1.0 - sqrt(d2) / L.pos.w);
+        }
+    }
+    float fade = 1.0;
+    if ((flags & kRound) && !(flags & kHasAlpha)) {
+        float2 c = in.uv * 2.0 - 1.0;
+        fade = 1.0 - dot(c, c);
+        if (fade <= 0.0) discard_fragment();
+    }
     float4 t = tex.sample(texSampler, in.uv);
+    if ((flags & kHasAlpha) && (flags & (kColorKey | kMasked))) {
+        // The mask shapes sprites and effects; world surfaces ignore it.
+        float ta = t.a * 255.0;
+        if (ta < 0.5 || (!blended && ta < 127.5)) discard_fragment();
+        if (blended) fade *= t.a;
+    } else if ((flags & kColorKey) && all(t.rgb * 255.0 < 0.5)) {
+        discard_fragment();
+    }
+    float alpha = in.mode.x;
+    if (flags & kAlpha) alpha *= fade;  // alpha blends fade by coverage
+    else light *= fade;                 // additive (and opaque) fade the color
     // Truncated to 8 bits like the software renderer (stores round otherwise).
     float3 c = floor(min(t.rgb * light, 1.0) * 255.0 + 0.001) / 255.0;
-    return float4(c, 0);
+    return float4(c, blended ? alpha : 0.0);
 }
 )";
 
@@ -85,18 +148,34 @@ struct GpuVert {
     float lu, lv;
     float lmx, lmy, lmw, lmh;
     float tw, th, lit;
+    float sx, sy, sz, sr;  // bounding sphere
+    float nx, ny, nz, nd;  // plane
+    float alpha, flags;
 };
+
+enum : uint32_t { kHasAlpha = 1, kColorKey = 2, kRound = 4, kMasked = 8, kAlphaBlend = 16, kAdditiveBlend = 32 };
+constexpr int kMaxLights = 64;
 
 struct VertUniforms {
     float right[4], up[4], fwd[4], eye[4], proj[4];
 };
+struct GpuLight {
+    float pos[4];    // xyz, radius
+    float color[4];  // rgb, skip backfacing
+};
 struct FragUniforms {
     float lightScale[4];
-    float atlasInv[4];
+    float atlasInv[4];  // 1 / atlas w, h; light count
+    GpuLight lights[kMaxLights];
 };
+
+// Pipelines: blend mode × depth test.
+int pipelineIndex(Blend blend, bool noZ) { return int(blend) * 2 + (noZ ? 1 : 0); }
+constexpr int kPipelines = 6;
 
 struct Batch {
     int tex;  // -1: untextured (white)
+    int pipeline;
     Uint32 first, count;
 };
 
@@ -138,7 +217,7 @@ private:
 
     SDL_GPUDevice *m_device = nullptr;
     bool m_ownsDevice = false;
-    SDL_GPUGraphicsPipeline *m_pipeline = nullptr;
+    SDL_GPUGraphicsPipeline *m_pipelines[kPipelines] = {};
     SDL_GPUSampler *m_texSampler = nullptr, *m_lmSampler = nullptr;
     SDL_GPUTexture *m_white = nullptr;
 
@@ -174,7 +253,8 @@ GpuBackend::~GpuBackend()
     if (m_white) SDL_ReleaseGPUTexture(m_device, m_white);
     if (m_texSampler) SDL_ReleaseGPUSampler(m_device, m_texSampler);
     if (m_lmSampler) SDL_ReleaseGPUSampler(m_device, m_lmSampler);
-    if (m_pipeline) SDL_ReleaseGPUGraphicsPipeline(m_device, m_pipeline);
+    for (SDL_GPUGraphicsPipeline *p : m_pipelines)
+        if (p) SDL_ReleaseGPUGraphicsPipeline(m_device, p);
     if (m_ownsDevice) {
         SDL_DestroyGPUDevice(m_device);
         SDL_QuitSubSystem(SDL_INIT_VIDEO);
@@ -221,6 +301,9 @@ bool GpuBackend::init(SDL_GPUDevice *device)
         {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVert, lu)},
         {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuVert, lmx)},
         {5, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVert, tw)},
+        {6, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuVert, sx)},
+        {7, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuVert, nx)},
+        {8, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVert, alpha)},
     };
     SDL_GPUColorTargetDescription ct{};
     ct.format = SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM;  // the frame's XRGB8888
@@ -234,17 +317,35 @@ bool GpuBackend::init(SDL_GPUDevice *device)
     pi.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pi.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
     pi.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;  // sky boxes are seen from inside
-    pi.depth_stencil_state.enable_depth_test = true;
-    pi.depth_stencil_state.enable_depth_write = true;
-    pi.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_GREATER;
     pi.target_info.color_target_descriptions = &ct;
     pi.target_info.num_color_targets = 1;
     pi.target_info.has_depth_stencil_target = true;
     pi.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D32_FLOAT;
-    m_pipeline = SDL_CreateGPUGraphicsPipeline(m_device, &pi);
+    bool ok = true;
+    for (Blend blend : {Opaque, Alpha, Additive})
+        for (bool noZ : {false, true}) {
+            // Only opaque polygons write depth; noZ ones draw over everything.
+            pi.depth_stencil_state.enable_depth_test = true;
+            pi.depth_stencil_state.enable_depth_write = blend == Opaque;
+            pi.depth_stencil_state.compare_op = noZ ? SDL_GPU_COMPAREOP_ALWAYS : SDL_GPU_COMPAREOP_GREATER;
+            ct.blend_state = {};
+            if (blend != Opaque) {
+                ct.blend_state.enable_blend = true;
+                ct.blend_state.src_color_blendfactor = SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+                ct.blend_state.dst_color_blendfactor =
+                    blend == Additive ? SDL_GPU_BLENDFACTOR_ONE : SDL_GPU_BLENDFACTOR_ONE_MINUS_SRC_ALPHA;
+                ct.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+                ct.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ZERO;  // keep the frame's alpha
+                ct.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+                ct.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+            }
+            SDL_GPUGraphicsPipeline *&p = m_pipelines[pipelineIndex(blend, noZ)];
+            p = SDL_CreateGPUGraphicsPipeline(m_device, &pi);
+            ok = ok && p;
+        }
     SDL_ReleaseGPUShader(m_device, vs);
     SDL_ReleaseGPUShader(m_device, fs);
-    if (!m_pipeline) return false;
+    if (!ok) return false;
 
     SDL_GPUSamplerCreateInfo smp{};
     smp.min_filter = smp.mag_filter = SDL_GPU_FILTER_NEAREST;  // the software look, for now
@@ -388,35 +489,57 @@ void GpuBackend::buildAtlas()
     if (m_atlas) uploadTexture(m_atlas, texels.data(), m_atlasW, m_atlasH, 8);
 }
 
-// Triangles for the polygons this backend draws, grouped by texture.
+// Triangles for a list: opaque polygons first, grouped by texture, then the
+// blended ones in their own order.
 Geometry GpuBackend::build(const std::vector<DrawPoly> &polys, const DrawPass &pass)
 {
     const RenderResources &res = *m_frame.res;
-    std::vector<const DrawPoly *> todo;
-    todo.reserve(polys.size());
+    struct Item {
+        const DrawPoly *poly;
+        Blend blend;  // as drawn: world translucency blends at half alpha
+        float alpha;
+    };
+    std::vector<Item> opaque, blended;
     for (const DrawPoly &p : polys) {
         if (p.verts.size() < 3) continue;
         if (!pass.sky && (p.flags & kSurfSky)) continue;  // sky portals show the sky behind
-        // Not yet: blended, see-through and soft polygons.
-        if (p.blend != Opaque || (p.flags & kSurfTranslucent) || p.colorKey || p.round || p.noZ) continue;
-        todo.push_back(&p);
+        Item it{&p, p.blend, p.alpha};
+        if (it.blend == Opaque && (p.flags & kSurfTranslucent)) {
+            it.blend = Alpha;
+            it.alpha = 0.5f;
+        }
+        (it.blend == Opaque ? opaque : blended).push_back(it);
     }
-    std::stable_sort(todo.begin(), todo.end(), [](const DrawPoly *a, const DrawPoly *b) { return a->tex < b->tex; });
+    std::stable_sort(opaque.begin(), opaque.end(), [](const Item &a, const Item &b) { return a.poly->tex < b.poly->tex; });
+    opaque.insert(opaque.end(), blended.begin(), blended.end());
 
     Geometry geo;
     std::vector<GpuVert> verts;
-    for (const DrawPoly *p : todo) {
+    for (const Item &it : opaque) {
+        const DrawPoly *p = it.poly;
         const int tex = p->tex >= 0 && size_t(p->tex) < res.textures.size() ? p->tex : -1;
-        const float tw = tex >= 0 ? float(res.textures[size_t(tex)].w) : 1.0f;
-        const float th = tex >= 0 ? float(res.textures[size_t(tex)].h) : 1.0f;
+        const RenderTexture *t = tex >= 0 ? &res.textures[size_t(tex)] : nullptr;
+        const float tw = t ? float(t->w) : 1.0f, th = t ? float(t->h) : 1.0f;
         AtlasRect lm;
         if (!pass.sky && p->lightmap >= 0 && size_t(p->lightmap) < m_atlasRects.size()) lm = m_atlasRects[size_t(p->lightmap)];
         const float lit = p->lit && !pass.sky ? 1.0f : 0.0f;
-        if (geo.batches.empty() || geo.batches.back().tex != tex)
-            geo.batches.push_back({tex, Uint32(verts.size()), 0});
+        uint32_t flags = 0;
+        if (t && t->hasAlpha) flags |= kHasAlpha;
+        if (p->colorKey) flags |= kColorKey;
+        if (p->round) flags |= kRound;
+        if (p->blend != Opaque) flags |= kMasked;
+        if (it.blend == Alpha) flags |= kAlphaBlend;
+        if (it.blend == Additive) flags |= kAdditiveBlend;
+        const float alpha = std::clamp(it.alpha, 0.0f, 1.0f);
+        const Vec3 &n = p->normal, &v0 = p->verts[0].p;
+        const float nd = n.x * v0.x + n.y * v0.y + n.z * v0.z;
+        const int pipe = pipelineIndex(it.blend, p->noZ);
+        if (geo.batches.empty() || geo.batches.back().tex != tex || geo.batches.back().pipeline != pipe)
+            geo.batches.push_back({tex, pipe, Uint32(verts.size()), 0});
         auto vert = [&](const DrawVert &v) {
             verts.push_back({v.p.x, v.p.y, v.p.z, v.u, v.v, v.r, v.g, v.b, v.lu, v.lv, float(lm.x), float(lm.y),
-                             float(lm.w), float(lm.h), tw, th, lit});
+                             float(lm.w), float(lm.h), tw, th, lit, p->sphereCenter.x, p->sphereCenter.y,
+                             p->sphereCenter.z, p->sphereRadius, n.x, n.y, n.z, nd, alpha, float(flags)});
         };
         for (size_t k = 1; k + 1 < p->verts.size(); ++k) {
             vert(p->verts[0]);
@@ -509,8 +632,18 @@ void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
                        {b.forward.x, b.forward.y, b.forward.z, 0},
                        {pass.eye.x, pass.eye.y, pass.eye.z, 0},
                        {1.0f / t, (vw / vh) / t, pass.nearZ, 0}};
-    FragUniforms fu = {{m_frame.lightScale[0], m_frame.lightScale[1], m_frame.lightScale[2], 1},
-                       {1.0f / float(m_atlasW), 1.0f / float(m_atlasH), 0, 0}};
+    FragUniforms fu{};
+    for (int i = 0; i < 3; ++i) fu.lightScale[i] = m_frame.lightScale[i];
+    fu.lightScale[3] = 1;
+    int nLights = 0;
+    if (m_frame.lights)
+        for (const Light &L : *m_frame.lights) {
+            if (nLights == kMaxLights) break;
+            fu.lights[nLights++] = {{L.pos.x, L.pos.y, L.pos.z, L.radius}, {L.r, L.g, L.b, L.skipBackfacing ? 1.0f : 0.0f}};
+        }
+    fu.atlasInv[0] = 1.0f / float(m_atlasW);
+    fu.atlasInv[1] = 1.0f / float(m_atlasH);
+    fu.atlasInv[2] = float(nLights);
 
     SDL_GPUColorTargetInfo ct{};
     ct.texture = m_color;
@@ -526,7 +659,6 @@ void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
     m_clearDepth = false;
 
     SDL_GPURenderPass *rp = SDL_BeginGPURenderPass(m_cmd, &ct, 1, &dt);
-    SDL_BindGPUGraphicsPipeline(rp, m_pipeline);
     SDL_GPUViewport v{float(vp.left), float(vp.top), vw, vh, 0, 1};
     SDL_SetGPUViewport(rp, &v);
     SDL_Rect sc{vp.left, vp.top, vp.right - vp.left, vp.bottom - vp.top};
@@ -535,7 +667,12 @@ void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
     SDL_PushGPUFragmentUniformData(m_cmd, 0, &fu, sizeof fu);
     SDL_GPUBufferBinding vb{geo->buffer, 0};
     SDL_BindGPUVertexBuffers(rp, 0, &vb, 1);
+    int bound = -1;
     for (const Batch &batch : geo->batches) {
+        if (batch.pipeline != bound) {
+            SDL_BindGPUGraphicsPipeline(rp, m_pipelines[batch.pipeline]);
+            bound = batch.pipeline;
+        }
         SDL_GPUTexture *tex = batch.tex >= 0 && size_t(batch.tex) < m_textures.size() && m_textures[size_t(batch.tex)]
                                   ? m_textures[size_t(batch.tex)]
                                   : m_white;

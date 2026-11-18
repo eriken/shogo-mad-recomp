@@ -3,10 +3,10 @@
 //
 // For now it still works on the CPU frame: begin() uploads the target
 // surface, draws go to a GPU copy of it, and end() reads the result back, so
-// the 2D drawing around it keeps working unchanged. What it draws so far:
-// opaque textured polygons with vertex or lightmap light, the global light
-// scale, and the sky. Other polygons (translucent, sprites, particles) are
-// skipped, and dynamic lights are ignored.
+// the 2D drawing around it keeps working unchanged. It follows the software
+// rasterizer's rules: vertex or lightmap light, the light scale, dynamic
+// lights, alpha and additive blending, masks and see-through black, soft
+// particles. The screen tint is still applied on the CPU after read-back.
 #ifndef SHOGO_ENGINE_RENDER_GPU_H
 #define SHOGO_ENGINE_RENDER_GPU_H
 
