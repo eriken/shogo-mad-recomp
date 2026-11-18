@@ -14,6 +14,7 @@
 #include "engine/world_dat.h"  // Vec3
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -64,6 +65,10 @@ public:
     // Source frames queued and not yet played.
     size_t streamQueued() const;
 
+    // Music: adds frames of 44.1 kHz stereo to the buffer it is given. It has
+    // its own volume, so the sound volume doesn't scale it.
+    void setMusicSource(std::function<void(float *, int)> source) { m_music = std::move(source); }
+
     // Fills frames stereo samples (interleaved L R).
     void mix(int16_t *out, int frames);
 
@@ -94,6 +99,8 @@ private:
     std::unordered_map<std::string, std::shared_ptr<SoundData>> m_cache;
     std::vector<Voice> m_voices;
     std::vector<float> m_acc;
+    std::function<void(float *, int)> m_music;
+    std::vector<float> m_musicBuf;
     std::vector<int16_t> m_stream;  // interleaved stereo
     double m_streamPos = 0;         // in source frames
     int m_streamRate = 0;
@@ -109,7 +116,7 @@ Mixer &mixer();
 // Writes 16-bit stereo samples (interleaved) as a WAV file.
 bool writeWav(const std::string &path, const std::vector<int16_t> &stereo, int rate);
 
-// The sound functions of each interface (music calls are accepted and ignored).
+// The sound functions of each interface (the client's music functions are in music.h).
 void installSoundAPI(ClientDE *client);
 void installSoundAPI(ServerDE *server, EngineObject *(*playerObject)());
 

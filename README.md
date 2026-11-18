@@ -31,9 +31,10 @@ This repository contains **only our own code**. You supply two things yourself:
 | Engine: effects | Sprites (`.SPR` animations, camera-facing or rotatable, additive or color-keyed, shaped by the DTX alpha mask), particle systems (the game's `DEParticle` lists, gravity, lifetimes) and line systems; muzzle flashes, impacts, smoke, shell casings. Particle size is a guess (`kParticleWorldScale`) |
 | Engine: lights | Dynamic lights (`OT_LIGHT` objects: muzzle flashes, projectiles, explosions, flickering level lights) add light per pixel to the world polygons they reach and per vertex to models; `SetGlobalLightScale` tints the baked light, `SetCameraLightAdd` tints the screen (damage flashes) |
 | Engine: sound | Sound effects from `SOUND.REZ` (all PCM WAV): a software mixer at 44.1 kHz stereo with local, ambient and 3D sounds (inner/outer radius falloff, left/right pan), loops, sounds attached to objects, handles (`KillSound`, `IsSoundDone`...), volume, a soft limiter; SDL3 output in the game, `--audio-out` in the probe. No reverb or doppler |
+| Engine: music | The game's interactive music (Microsoft IMA data in `Music\`, [format notes](docs/music-format.md)): our own DLS level 1 synth (looped samples, volume envelopes, LFO, pan) and a section player (the style's pattern for the section's groove level, looped, a random variation per part on each pass, the section's band); the game's playlists for silence, ambient, cruising and hard driving, with their transition sections, switching now, at the next measure or at the end of the section. Its own volume (the music slider) |
 | Engine: movies | Smacker (`.SMK`) movies for the startup logo and intro: our own decoder (palette updates, mono/full/skip/fill blocks, Huffman-coded DPCM sound), full screen and paced by the game clock, interlaced movies shown with their blank lines like the original player, the soundtrack streamed through the mixer; Escape skips. `+DisableMovies 1` skips them |
 | Engine: saves | Quick save/load (F6/F7), the save and load menus, the level-start reload save, and level changes that carry the player over (`SaveObjects`/`RestoreObjects` in our own file format, object references remapped on load, inter-object links, client references so the player is put back into its saved object, the game console's per-level settings). Shogo's original `.sav` files aren't read; portal states aren't saved |
-| Engine: not yet | Music (DirectMusic data: DLS banks, styles, segments; the game is told there's no music driver), networking |
+| Engine: not yet | Networking; CD audio (the three levels that ask for a CD track have no music) |
 | Engine: everything else | Logging stubs (every `ClientDE`/`ServerDE` entry point), generated from the API headers |
 
 `ctest --test-dir build` runs the engine unit tests (game-data tests use `gamedata/`).
@@ -42,7 +43,7 @@ Run `shogo-probe` (below) to see which engine functions the game calls, in order
 Environment switches print more: `SHOGO_TRACE_PLAYER` (player and movement object per
 frame, probe only), `SHOGO_TRACE_MOVES` (each client move and what it hit),
 `SHOGO_TRACE_INPUT`, `SHOGO_TRACE_PHYSICS`, `SHOGO_TRACE_ANIM`, `SHOGO_TRACE_MESSAGES`,
-`SHOGO_TRACE_SAVE` (each save and restore), `SHOGO_TRACE_CAMERA` (camera position, light scale and polygons
+`SHOGO_TRACE_SAVE` (each save and restore), `SHOGO_TRACE_MUSIC` (instrument banks, playlists and each section played), `SHOGO_TRACE_CAMERA` (camera position, light scale and polygons
 drawn, every 30 frames), `SHOGO_TRACE_FX` (sprites, particle systems and special-effect messages),
 `SHOGO_TRACE_MODELS` (each model's skin and color once), `SHOGO_TRACE_MODELLIGHT` (the world light sampled
 for the first-person weapon), `SHOGO_TRACE_LIGHTS` (each light once, lit
@@ -92,6 +93,9 @@ cd gamedata && ../build/shogo-probe --frames 40 --key 0x28@5 --key 0x0D@10 \
 # The intro movie 20 seconds in (logo, then intro), with its soundtrack
 cd gamedata && ../build/shogo-probe --movies --frames 1330 --screenshot /tmp/intro.png --audio-out /tmp/intro.wav \
     ../build/object.lto.dylib ../build/cshell.dylib
+
+# Render a soundtrack's sections to a WAV file (--info lists instruments and patterns)
+cd gamedata && ../build/shogo-music 'Music\RedRiot' redriot.dls sta.sec a1.sec atc.sec c1.sec --out /tmp/redriot.wav
 
 # New Game headless: single player, normal, skip the intro, dismiss the briefing
 cd gamedata && ../build/shogo-probe --frames 160 --key 0x0D@10 --key 0x0D@20 --key 0x0D@30 \
@@ -192,6 +196,10 @@ Layers, from least to most invasive:
 | `engine/world_dat.*` | `.DAT` world reader (objects, BSPs, world models, lightmaps) |
 | `engine/smacker.*` | Smacker movie decoder (video and DPCM audio) |
 | `engine/movie.*` | Movie playback for `StartVideo`/`UpdateVideo`: pacing, full-screen drawing, the soundtrack |
+| `engine/riff.h` | RIFF chunk walking for the music formats |
+| `engine/dls.*` | DLS level 1 instrument banks |
+| `engine/music.*` | IMA styles and sections, the DLS synth, the sequencer and playlists, the client's music functions |
+| `engine/music_main.cpp` | `shogo-music`: renders music sections to a WAV file |
 | `engine/savegame.*` | Saved games and level changes: `SaveObjects`, `RestoreObjects`, client references |
 | `engine/dtx.*` | DTX texture decoder |
 | `engine/render_world.*` | Software world renderer and sky box |

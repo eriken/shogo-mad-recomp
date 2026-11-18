@@ -1,6 +1,7 @@
 #include "engine/sound.h"
 
 #include "engine/math3d.h"
+#include "engine/music.h"
 #include "engine/objects.h"
 #include "engine/rez_file.h"
 #include "engine/stub_support.h"
@@ -278,10 +279,12 @@ void Mixer::mix(int16_t *out, int frames)
             m_streamPos += step;
         }
     }
+    m_musicBuf.assign(size_t(frames) * 2, 0.0f);
+    if (m_music) m_music(m_musicBuf.data(), frames);
     const float master = m_volume / 100.0f;
     for (size_t i = 0; i < m_acc.size(); ++i) {
         // Soft knee above 0.75 so piles of gunfire squash instead of clipping.
-        float x = m_acc[i] * master, a = std::fabs(x);
+        float x = m_acc[i] * master + m_musicBuf[i], a = std::fabs(x);
         if (a > 0.75f) x = std::copysign(0.75f + 0.25f * std::tanh((a - 0.75f) / 0.25f), x);
         out[i] = int16_t(x * 32767.0f);
     }
@@ -374,22 +377,6 @@ DRESULT cGetProviders(Sound3DProvider *&list, DBOOL)
 }
 void cReleaseProviders(Sound3DProvider *) {}
 
-// Music (DirectMusic data in Music\): not played yet; say there's no music driver.
-DBOOL mInitMusic(char *) { return DFALSE; }
-DBOOL mFalse1(char *) { return DFALSE; }
-void mVoid() {}
-DBOOL mFalse0() { return DFALSE; }
-DBOOL mPlayList(char *, char *, DBOOL, DDWORD) { return DFALSE; }
-DBOOL mPlayBreak(char *, DDWORD) { return DFALSE; }
-void mStop(DDWORD) {}
-DBOOL mAddSong(char *, char *) { return DFALSE; }
-void mDeletePlayList(char *) {}
-DBOOL mPlayMotif(char *, DBOOL) { return DFALSE; }
-void mStopMotif(char *) {}
-short g_musicVolume = 100;
-short mGetVolume() { return g_musicVolume; }
-void mSetVolume(short v) { g_musicVolume = v; }
-
 // Server: one local client, so server sounds go straight to the mixer.
 DRESULT sPlaySound(PlaySoundInfo *info)
 {
@@ -441,21 +428,7 @@ void installSoundAPI(ClientDE *c)
     c->GetSound3DProviderLists = cGetProviders;
     c->ReleaseSound3DProviderList = cReleaseProviders;
 
-    c->InitMusic = mInitMusic;
-    c->SetMusicDirectory = mFalse1;
-    c->LoadSong = mFalse1;
-    c->DestroyAllSongs = mVoid;
-    c->PlayList = mPlayList;
-    c->PlayBreak = mPlayBreak;
-    c->StopMusic = mStop;
-    c->PauseMusic = mFalse0;
-    c->ResumeMusic = mFalse0;
-    c->AddSongToPlayList = mAddSong;
-    c->DeletePlayList = mDeletePlayList;
-    c->PlayMotif = mPlayMotif;
-    c->StopMotif = mStopMotif;
-    c->GetMusicVolume = mGetVolume;
-    c->SetMusicVolume = mSetVolume;
+    installMusicAPI(c);
 }
 
 void installSoundAPI(ServerDE *s, EngineObject *(*playerObject)())

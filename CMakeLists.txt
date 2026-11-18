@@ -124,6 +124,7 @@ add_library(shogo_engine STATIC
     engine/effects.cpp
     engine/sound.cpp
     engine/smacker.cpp engine/movie.cpp
+    engine/dls.cpp engine/music.cpp
     engine/stub_support.cpp "${SHOGO_STUBS_CPP}")
 target_include_directories(shogo_engine PUBLIC "${CMAKE_SOURCE_DIR}")
 target_link_libraries(shogo_engine PUBLIC shogo_game_flags
@@ -159,3 +160,7 @@ target_link_libraries(shogo-modelview PRIVATE shogo_engine)
 
 add_executable(shogo-worldview engine/worldview_main.cpp)
 target_link_libraries(shogo-worldview PRIVATE shogo_engine SDL3::SDL3)
+
+# shogo-music: renders music sections to a WAV file.
+add_executable(shogo-music engine/music_main.cpp)
+target_link_libraries(shogo-music PRIVATE shogo_engine)

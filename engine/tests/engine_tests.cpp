@@ -15,6 +15,8 @@
 #include "engine/effects.h"
 #include "engine/sound.h"
 #include "engine/smacker.h"
+#include "engine/music.h"
+#include "engine/dls.h"
 #include "engine/objects.h"
 #include "engine/server.h"
 #include "engine/stub_support.h"
@@ -786,9 +788,53 @@ static void testMovies(const std::string &dir)
     CHECK(out[50] == 0);
 }
 
+// RedRiot's music: the DLS bank, a style and a section, then a few seconds played.
+static void testMusic(const std::string &dir)
+{
+    shogo::MusicPlayer m;
+    if (!m.setDirectory((dir + "/Music/RedRiot").c_str())) {
+        printf("  Music/RedRiot not found, skipped\n");
+        return;
+    }
+    CHECK(m.initInstruments("redriot.dls", "redinit.sty"));
+    const shogo::DlsCollection *dls = m.instruments();
+    CHECK(dls && dls->instruments.size() == 13 && dls->waves.size() == 27);
+    if (dls) {
+        const shogo::DlsInstrument *strings = dls->find(0, 3);
+        CHECK(strings && strings->name == "Batman Strings" && strings->regions.size() == 1 && strings->regions[0].looped);
+    }
+    const shogo::ImaSection *sec = m.findSection("a1.sec");
+    CHECK(sec && sec->style == "RedRiot4" && sec->groove == 0x100 && sec->measures == 4 && sec->tempo == 105);
+    CHECK(sec && sec->hasBand && sec->band.program[1] == 3);
+    const shogo::ImaStyle *sty = sec ? m.findStyle(sec->style) : nullptr;
+    CHECK(sty && sty->patterns.size() == 4);
+    if (sty) {
+        std::mt19937 rng(1);
+        const shogo::ImaPattern *p = sty->patternFor(0x100, rng);
+        CHECK(p && p->name == "a1" && p->length == 3072 && p->notes.size() == 24);
+    }
+    CHECK(m.addToPlayList("list", "a1.sec") && m.addToPlayList("list", "c1.sec"));
+    CHECK(m.playList("list", "sta.sec", false, MUSIC_IMMEDIATE));
+    CHECK(m.currentSection() == "sta.sec");
+    // sta + a1 + c1: 12 measures at 105 bpm.
+    std::vector<float> buf(4410 * 2);
+    double energy = 0;
+    int blocks = 0;
+    while (!m.currentSection().empty() && blocks < 400) {
+        std::fill(buf.begin(), buf.end(), 0.0f);
+        m.render(buf.data(), 4410);
+        for (float f : buf) energy += double(f) * f;
+        ++blocks;
+    }
+    CHECK(blocks > 0 && std::abs(blocks * 0.1 - 12 * 4 * 60.0 / 105) < 0.25);
+    CHECK(energy / (blocks * 4410.0 * 2) > 1e-4);
+    printf("  music: RedRiot sta, a1, c1 in %.1f s, rms %.3f\n", blocks * 0.1, std::sqrt(energy / (blocks * 4410.0 * 2)));
+}
+
 static void testGameData(const std::string &dir)
 {
     testMovies(dir);
+    testMusic(dir);
     shogo::ResourceFS fs;
     std::string err;
     CHECK(fs.addArchive(dir + "/SHOGO.REZ", &err));
