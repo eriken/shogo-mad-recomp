@@ -40,6 +40,10 @@ bool Input::parseObject(Device dev, const std::string &obj, bool *axis, int *cod
             *code = i;
             return true;
         }
+    if (lower(s) == "wheel up" || lower(s) == "wheel down") {
+        *code = lower(s) == "wheel up" ? kWheelUp : kWheelDown;
+        return true;
+    }
     char last = (char)toupper((unsigned char)s.back());
     std::string l = lower(s);
     if (l == "x-axis" || l == "y-axis" || l == "z-axis" || l == "x axis" || l == "y axis" || l == "z axis") last = (char)toupper((unsigned char)l[0]);
@@ -228,6 +232,8 @@ std::string Input::mouseObjectName(bool axis, int code)
     if (axis) return std::string(1, char('X' + code)) + " Axis";
     static const char *const buttons[3] = {"Left Button", "Right Button", "Middle Button"};
     if (code >= 0 && code < 3) return buttons[code];
+    if (code == kWheelUp) return "Wheel Up";
+    if (code == kWheelDown) return "Wheel Down";
     return "Button " + std::to_string(code);
 }
 
@@ -300,11 +306,39 @@ void Input::axisOffsets(float *offsets)
     m_delta[0] = m_delta[1] = m_delta[2] = 0;
 }
 
+void Input::mouseWheel(float notches)
+{
+    m_delta[2] += notches * 120.0f;
+    // Trackpads send fractions: count whole notches.
+    m_wheel += notches;
+    while (m_wheel >= 1 || m_wheel <= -1) {
+        const int dir = m_wheel > 0 ? 0 : 1;
+        m_wheel -= dir == 0 ? 1.0f : -1.0f;
+        if (m_trackMouse) m_tracked.push_back({true, dir == 0 ? kWheelUp : kWheelDown});
+        m_wheelWaiting[dir] = std::min(m_wheelWaiting[dir] + 1, 4);  // a fast spin doesn't queue up seconds of presses
+    }
+}
+
+void Input::step()
+{
+    for (int dir = 0; dir < 2; ++dir) {
+        bool &down = m_buttons[dir == 0 ? kWheelUp : kWheelDown];
+        if (down) {
+            down = false;
+        } else if (m_wheelWaiting[dir] > 0) {
+            down = true;
+            --m_wheelWaiting[dir];
+        }
+    }
+}
+
 void Input::clear()
 {
     memset(m_keys, 0, sizeof(m_keys));
     memset(m_buttons, 0, sizeof(m_buttons));
     m_delta[0] = m_delta[1] = m_delta[2] = 0;
+    m_wheel = 0;
+    m_wheelWaiting[0] = m_wheelWaiting[1] = 0;
 }
 
 int scanCodeFromVK(int vk)

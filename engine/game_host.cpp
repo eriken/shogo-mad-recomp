@@ -153,7 +153,7 @@ void GameHost::keyUp(int vk)
 
 void GameHost::mouseMotion(float dx, float dy) { session.input.mouseMotion(dx, dy); }
 void GameHost::mouseButton(int button, bool down) { session.input.mouseButton(button, down); }
-void GameHost::mouseWheel(float notches) { session.input.mouseWheel(notches * 120.0f); }  // DirectInput: 120 per notch
+void GameHost::mouseWheel(float notches) { session.input.mouseWheel(notches); }
 bool GameHost::wantsMouseCapture() const { return session.server.worldRunning && session.input.enabled; }
 
 }  // namespace shogo

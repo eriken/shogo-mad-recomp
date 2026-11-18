@@ -32,7 +32,14 @@ public:
         if (down && m_trackMouse) m_tracked.push_back({true, button});
     }
     void mouseMotion(float dx, float dy) { m_delta[0] += dx; m_delta[1] += dy; }
-    void mouseWheel(float dz) { m_delta[2] += dz; }
+    // Wheel movement in notches (+ away from the player). It moves the Z axis
+    // (120 per notch, like DirectInput) and presses the wheel buttons
+    // (kWheelUp / kWheelDown), one frame per notch: see step().
+    void mouseWheel(float notches);
+    // Once a frame, before the game reads commands: a wheel button pressed
+    // last frame is released, else the next waiting notch presses it.
+    void step();
+    static constexpr int kWheelUp = 6, kWheelDown = 7;  // mouse button codes
 
     bool enabled = true;  // SetInputState
     bool isCommandOn(int action) const;
@@ -54,7 +61,7 @@ public:
     static std::string keyName(int dik);
     static int keyCode(const std::string &name);
     // A mouse object's name: "X Axis", "Y Axis", "Z Axis", "Left Button",
-    // "Right Button", "Middle Button", "Button 3"...
+    // "Right Button", "Middle Button", "Button 3"..., "Wheel Up", "Wheel Down"
     static std::string mouseObjectName(bool axis, int code);
 
     // What's bound to each key or mouse object, for GetDeviceBindings.
@@ -107,6 +114,8 @@ private:
     std::vector<Tracked> m_tracked;
     bool m_buttons[8] = {};
     float m_delta[3] = {};
+    float m_wheel = 0;          // part of a notch not yet counted
+    int m_wheelWaiting[2] = {};  // notches up, down
 };
 
 // Windows virtual-key code -> DirectInput scan code (0 if unknown).

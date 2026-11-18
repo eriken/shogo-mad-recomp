@@ -2,7 +2,7 @@
 // (real functions where implemented, logging stubs elsewhere), drives startup
 // and a number of headless frames, and reports which engine calls the game made.
 //
-// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu [--smooth] [--msaa N] [--gpu-scale S] | --gpu-reference] [--time] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
+// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu [--smooth] [--msaa N] [--gpu-scale S] | --gpu-reference] [--time] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
 //                    <object.lto.dylib> <cshell.dylib>
 // Run it from the extracted game folder.
 #include "engine/game_host.h"
@@ -70,6 +70,7 @@ int main(int argc, char **argv)
     std::vector<int16_t> audio;
     std::vector<KeyPress> keys;
     std::vector<KeyPress> clicks;  // mouse button (0 left, 1 right, 2 middle) @ frame
+    std::vector<KeyPress> wheels;  // wheel notches (+ up) @ frame
     std::vector<KeyHold> holds;
     struct MouseMove { float dx, dy; int from, to; };
     std::vector<MouseMove> mouse;
@@ -104,6 +105,9 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--click") && i + 1 < argc) {
             int b = 0, at = 0;
             if (sscanf(argv[++i], "%i@%d", &b, &at) == 2) clicks.push_back({b, at});
+        } else if (!strcmp(argv[i], "--wheel") && i + 1 < argc) {
+            int n = 0, at = 0;
+            if (sscanf(argv[++i], "%i@%d", &n, &at) == 2) wheels.push_back({n, at});
         } else if (!strcmp(argv[i], "--key") && i + 1 < argc) {
             int vk = 0, at = 0;
             if (sscanf(argv[++i], "%i@%d", &vk, &at) == 2) keys.push_back({vk, at});
@@ -121,7 +125,7 @@ int main(int argc, char **argv)
     }
     if (paths.size() != 2) {
         fprintf(stderr,
-                "usage: %s [+var value ...] [--frames N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME@frame ...] <object.lto.dylib> <cshell.dylib>\n",
+                "usage: %s [+var value ...] [--frames N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME@frame ...] <object.lto.dylib> <cshell.dylib>\n",
                 argv[0]);
         return 2;
     }
@@ -173,6 +177,11 @@ int main(int argc, char **argv)
                 printf("[frame %d] mouse button %d\n", i, c.vk);
                 host.mouseButton(c.vk, true);
                 host.mouseButton(c.vk, false);
+            }
+        for (const KeyPress &w : wheels)
+            if (w.frame == i) {
+                printf("[frame %d] mouse wheel %d\n", i, w.vk);
+                host.mouseWheel(float(w.vk));
             }
         for (const KeyPress &k : keys)
             if (k.frame == i) {

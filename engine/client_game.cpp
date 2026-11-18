@@ -1313,6 +1313,7 @@ void GameSession::update(double dt)
     if (!shell) return;
 
     // Command edges, for the shells' OnCommandOn / OnCommandOff.
+    input.step();
     std::vector<int> now = input.activeCommands();
     for (int c : now)
         if (std::find(commandsOn.begin(), commandsOn.end(), c) == commandsOn.end()) {

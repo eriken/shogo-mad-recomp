@@ -298,7 +298,10 @@ int main(int argc, char **argv)
                 break;
             }
             case SDL_EVENT_MOUSE_WHEEL:
-                if (captured) host.mouseWheel(e.wheel.y);
+                // Up is the wheel turned away from the player, whatever the
+                // system's scroll direction ("natural" flips it).
+                if (captured || host.wantsMouseButtons())
+                    host.mouseWheel(e.wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -e.wheel.y : e.wheel.y);
                 break;
             default: break;
             }

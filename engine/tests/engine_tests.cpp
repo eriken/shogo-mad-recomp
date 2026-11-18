@@ -1038,6 +1038,29 @@ static void testInputConfigLines()
     input.endTrack();
     input.keyDown(0x1F);
     CHECK(input.takeTracked().empty());
+
+    // The wheel as two buttons: each notch presses one for a frame, with a
+    // frame up between notches; the menu can bind them by name.
+    vars.run("rangebind \"##mouse\" \"Wheel Up\" 0 0 \"Fire\"; rangebind \"##mouse\" \"Wheel Down\" 0 0 \"Jump\"");
+    input.keyUp(0x1E);
+    input.keyUp(0x1F);
+    input.mouseButton(1, false);
+    input.mouseWheel(2);
+    input.mouseWheel(-0.6f);  // a trackpad's fractions add up
+    input.mouseWheel(-0.6f);
+    std::string seq;
+    for (int f = 0; f < 5; ++f) {
+        input.step();
+        seq += input.isCommandOn(1) ? 'F' : '.';
+        seq += input.isCommandOn(2) ? 'J' : '.';
+    }
+    CHECK(seq == "FJ..F.....");
+    input.startTrack(false, true);
+    input.mouseWheel(-1);
+    t = input.takeTracked();
+    CHECK(t.size() == 1 && t[0].mouse && t[0].code == shogo::Input::kWheelDown &&
+          shogo::Input::mouseObjectName(false, t[0].code) == "Wheel Down");
+    input.endTrack();
 }
 
 static bool near(const DVector &a, float x, float y, float z) { return std::fabs(a.x - x) + std::fabs(a.y - y) + std::fabs(a.z - z) < 1e-4f; }
