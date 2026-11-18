@@ -149,6 +149,12 @@ void WorldRenderer::addModel(const WorldBsp &bsp, std::vector<DrawPoly> &out, co
         if (poly.verts.size() < 3) continue;
         DrawPoly dp;
         dp.flags = s.flags;
+        // Translucent surfaces are drawn at half alpha with black see-through:
+        // the flag covers both glass (no black texels) and cut-outs such as
+        // barbed wire, girders, signs and the sky's moon (mostly black), whose
+        // black would otherwise darken what's behind into a frame.
+        static const bool noKey = getenv("SHOGO_NOTRANSLUCENTKEY") != nullptr;
+        dp.colorKey = (s.flags & kSurfTranslucent) && !noKey;
         dp.tex = bsp.textures.empty() ? -1 : textureIndex(bsp.textures[s.texture], fs);
         static const bool noLightmaps = getenv("SHOGO_NOLIGHTMAPS") != nullptr;
         const bool lightmapped = !noLightmaps && (s.flags & kSurfLightmapped) && !(s.flags & kSurfFullbright) &&

@@ -116,7 +116,7 @@ polygon's texture; for an animated `.spr` texture, of its first frame.
 |---|---|
 | 0x1 | solid |
 | 0x4 | invisible (`Textures\Invisible.dtx`, hull brushes) |
-| 0x8 | translucent (glass, glows) |
+| 0x8 | translucent: drawn at half alpha with black texels see-through (glass has no black; barbed wire, girders, signs and sky moons are mostly black) |
 | 0x10 | sky portal: the sky box shows through |
 | 0x20 | fullbright (signs, lights, environment maps) |
 | 0x80 | lightmapped |

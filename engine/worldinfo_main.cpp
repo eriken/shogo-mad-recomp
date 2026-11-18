@@ -46,8 +46,21 @@ int main(int argc, char **argv)
             std::map<uint32_t, int> flags;
             for (const auto &s : w->models[0].surfaces) flags[s.flags]++;
             for (auto &[f, n] : flags) printf("   surface flags %08x x%d\n", f, n);
-            for (const auto &m : w->models)
+            for (const auto &m : w->models) {
                 printf("   model %-24s flags %08x %5zu polys\n", m.name.c_str(), m.flags, m.polys.size());
+                const bool all = getenv("SHOGO_WORLDINFO_ALL") != nullptr;  // the main model's surfaces too
+                if (&m == &w->models[0] && !all) continue;
+                // Each surface of the smaller models: flags, texture, effect.
+                std::map<std::string, int> seen;
+                for (const auto &s : m.surfaces) {
+                    char key[512];
+                    snprintf(key, sizeof key, "%08x %s%s%s %08x", s.flags,
+                             s.texture < m.textures.size() ? m.textures[s.texture].c_str() : "?",
+                             s.effect.empty() ? "" : " effect ", s.effect.c_str(), s.unknown2);
+                    seen[key]++;
+                }
+                for (auto &[k, n] : seen) printf("      surface %s x%d\n", k.c_str(), n);
+            }
         }
     }
     return failures ? 1 : 0;

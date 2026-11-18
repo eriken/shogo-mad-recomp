@@ -1,3 +1,2 @@
 # Known differences between Metal and the software reference that
 # tools/render_check.sh allows: scene, allowed percent of 8x8 blocks, reason.
-36_KATO_CENTER 5 a fine grille seen edge-on: both renderers alias it, with different moire
