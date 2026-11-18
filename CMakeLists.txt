@@ -118,7 +118,7 @@ add_custom_command(OUTPUT "${SHOGO_STUBS_CPP}"
 add_library(shogo_engine STATIC
     engine/rez_file.cpp engine/pe_resources.cpp engine/strings.cpp
     engine/surfaces.cpp engine/fonts_coretext.cpp engine/image_write_imageio.cpp engine/image_read_imageio.cpp engine/client_api.cpp engine/game_host.cpp
-    engine/world_dat.cpp engine/dtx.cpp engine/render_world.cpp
+    engine/world_dat.cpp engine/dtx.cpp engine/render_world.cpp engine/render_software.cpp
     engine/math3d.cpp engine/api_common.cpp engine/messages.cpp engine/objects.cpp engine/server.cpp engine/savegame.cpp engine/client_game.cpp engine/interfaces.cpp engine/input.cpp engine/collision.cpp engine/movement.cpp
     engine/model.cpp
     engine/effects.cpp

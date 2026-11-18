@@ -1,11 +1,12 @@
-// Draws LithTech worlds into a software surface: perspective-correct textured
-// polygons with the baked vertex lighting, a z-buffer, and the sky box.
-//
-// This is the first renderer: simple and deterministic so it can be checked
-// headless. A GPU renderer can replace it behind the same interface later.
+// Draws LithTech worlds: loads a world's polygons, textures and lightmaps,
+// places its world models, and each frame sorts what's visible into passes
+// (sky, world, models, dynamic polygons, the view weapon) for a RenderBackend
+// to draw. The default backend is the software rasterizer, which is simple
+// and deterministic so it can be checked headless.
 #ifndef SHOGO_ENGINE_RENDER_WORLD_H
 #define SHOGO_ENGINE_RENDER_WORLD_H
 
+#include "engine/render_backend.h"
 #include "engine/rez_file.h"
 #include "engine/surfaces.h"
 #include "engine/world_dat.h"
@@ -17,58 +18,23 @@
 
 namespace shogo {
 
-// Surface flag bits as observed in the world files (names are our best reading).
-enum : uint32_t {
-    kSurfSolid = 0x1,
-    kSurfInvisible = 0x4,
-    kSurfTranslucent = 0x8,
-    kSurfSky = 0x10,
-    kSurfFullbright = 0x20,
-    kSurfLightmapped = 0x80,
-};
-
-struct Camera {
-    Vec3 pos;
-    float pitch = 0, yaw = 0, roll = 0;  // radians; LithTech euler order, +pitch looks down
-    float fovX = 1.5708f;                // horizontal field of view
-    DRect rect{0, 0, 0, 0};              // viewport on the target (empty = whole surface)
-    // When set, these axes are used instead of the Euler angles.
-    bool hasBasis = false;
-    Vec3 right, up, forward;
-};
-
 class WorldRenderer {
 public:
-    struct DrawVert {
-        Vec3 p;
-        float u, v;     // texels
-        float r, g, b;  // 0..1 light
-        float lu = 0, lv = 0;  // lightmap sample coordinates (lightmapped polygons)
-    };
-    enum Blend : uint8_t { Opaque, Alpha, Additive };
-    struct DrawPoly {
-        std::vector<DrawVert> verts;
-        int tex = -1;
-        uint32_t flags = 0;
-        Blend blend = Opaque;   // Alpha/Additive don't write depth
-        float alpha = 1.0f;
-        bool colorKey = false;  // black texels are see-through
-        bool noZ = false;       // no depth test
-        bool round = false;     // soft round falloff across the texture (particles)
-        Vec3 sphereCenter;
-        float sphereRadius = 0;
-        bool lit = false;  // world surface with baked light: takes dynamic lights and the light scale
-        Vec3 normal;       // front-facing plane normal (lit polygons)
-        int lightmap = -1; // baked light per pixel instead of per vertex
-    };
+    using DrawVert = shogo::DrawVert;
+    using DrawPoly = shogo::DrawPoly;
+    using Light = shogo::Light;
+    using Blend = shogo::Blend;
+    static constexpr Blend Opaque = shogo::Opaque, Alpha = shogo::Alpha, Additive = shogo::Additive;
+    using Stats = RenderStats;
 
-    // A dynamic light for the next render(): adds color × (1 - distance / radius).
-    struct Light {
-        Vec3 pos;
-        float radius = 0;
-        float r = 1, g = 1, b = 1;
-        bool skipBackfacing = false;  // FLAG_DONTLIGHTBACKFACING
-    };
+    WorldRenderer();
+    ~WorldRenderer();
+    WorldRenderer(const WorldRenderer &) = delete;
+    WorldRenderer &operator=(const WorldRenderer &) = delete;
+    // Who draws the pixels (the software backend unless replaced).
+    void setBackend(std::unique_ptr<RenderBackend> backend);
+
+    // Dynamic lights for the next render().
     void setLights(std::vector<Light> lights) { m_lights = std::move(lights); }
     // Multiplies the world's baked light (SetGlobalLightScale).
     void setLightScale(float r, float g, float b) { m_lightScale[0] = r; m_lightScale[1] = g; m_lightScale[2] = b; }
@@ -106,36 +72,22 @@ public:
     // The player start (first GameStartPoint), handy for viewers.
     bool startPoint(Camera &cam) const;
 
-    struct Stats {
-        size_t polys = 0, skyPolys = 0, textures = 0, missingTextures = 0;
-        size_t drawnPolys = 0, dynamicPolys = 0, litPolys = 0, lightmaps = 0;
-    };
     const Stats &stats() const { return m_stats; }
 
 private:
-    struct Tex {
-        int w = 1, h = 1;
-        std::vector<uint32_t> px;  // 0xAARRGGBB; alpha 255 unless the texture has a mask
-        bool hasAlpha = false;
-    };
-    struct Lightmap {
-        int w = 0, h = 0;
-        std::vector<float> rgb;  // 0..1, w * h * 3
-    };
     int textureIndex(const std::string &name, const ResourceFS &fs);
     void addModel(const WorldBsp &bsp, std::vector<DrawPoly> &out, const ResourceFS &fs);
-    void drawPolys(Surface &dst, const Camera &cam, const Vec3 &eye, const std::vector<DrawPoly> &polys, bool sky,
-                   float nearZ = 1.0f);
+    RenderFrame frame(const Camera &cam);
+    void clearDynamic();
 
-    std::vector<Tex> m_textures;
-    std::vector<Lightmap> m_lightmaps;
+    std::unique_ptr<RenderBackend> m_backend;
+    RenderResources m_res;
     std::map<std::string, int> m_textureIds;
     std::vector<DrawPoly> m_world, m_sky, m_dynamic, m_blended, m_close;
     const ResourceFS *m_fs = nullptr;
     bool m_hasSky = false;
     Vec3 m_worldMin, m_worldMax, m_skyViewMin, m_skyViewMax;
     std::vector<WorldObject> m_starts;
-    std::vector<float> m_depth;  // 1/z per pixel
     std::vector<Light> m_lights;
     std::vector<std::vector<DrawPoly>> m_models;  // world models 1.., by index (sky ones empty)
     std::vector<ModelPlacement> m_placements;
