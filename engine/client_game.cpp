@@ -512,6 +512,61 @@ void setLightColorC(HLOCALOBJ h, float r, float g, float b)
 float getLightRadiusC(HLOCALOBJ h) { EngineObject *o = O(h); return o ? o->lightRadius : 0; }
 void setLightRadiusC(HLOCALOBJ h, float r) { if (EngineObject *o = O(h)) o->lightRadius = r; }
 void getGlobalLightScale(DVector *v) { if (v) *v = g_lightScale; }
+
+// SetModelHook: called before each model is drawn. It can drop the texture
+// (MHF_USETEXTURE), change the object flags for this draw and add light
+// (0..255 per channel): night vision and infrared outline enemies with it,
+// glowing and tinted props use it every frame.
+ModelHookFn g_modelHook = nullptr;
+void *g_modelHookUser = nullptr;
+DRESULT setModelHook(ModelHookFn fn, void *user)
+{
+    g_modelHook = fn;
+    g_modelHookUser = user;
+    return LT_OK;
+}
+
+// The panning sky shadow (GLOBALPAN_SKYSHADOW): a texture laid over the
+// world from above, scrolled by the game each frame. GLOBALPAN_FOGLAYER is
+// accepted and kept but not drawn (Shogo never sets it).
+struct GlobalPan {
+    std::string texture;  // empty: off
+    float xOffset = 0, zOffset = 0, xScale = 1, zScale = 1;
+};
+GlobalPan g_pan[2];
+
+DRESULT setGlobalPanTexture(DDWORD index, char *filename)
+{
+    if (index >= 2) return LT_ERROR;
+    static const bool trace = getenv("SHOGO_TRACE_PAN") != nullptr;
+    if (!filename || !filename[0]) {
+        g_pan[index].texture.clear();
+        return LT_OK;
+    }
+    std::string path = filename;
+    for (char &c : path)
+        if (c == '\\') c = '/';
+    if (!G().ctx->resources->exists(path)) {
+        if (trace) fprintf(stderr, "[pan] %u: no texture %s\n", index, filename);
+        g_pan[index].texture.clear();
+        return DE_NOTFOUND;
+    }
+    if (trace) fprintf(stderr, "[pan] %u: texture %s\n", index, filename);
+    g_pan[index].texture = path;
+    return LT_OK;
+}
+DRESULT setGlobalPanInfo(DDWORD index, float xOffset, float zOffset, float xScale, float zScale)
+{
+    if (index >= 2) return LT_ERROR;
+    GlobalPan &p = g_pan[index];
+    static const bool trace = getenv("SHOGO_TRACE_PAN") != nullptr;
+    if (trace && p.xScale != xScale) fprintf(stderr, "[pan] %u: offset %.1f %.1f scale %.2f %.2f\n", index, xOffset, zOffset, xScale, zScale);
+    p.xOffset = xOffset;
+    p.zOffset = zOffset;
+    p.xScale = xScale;
+    p.zScale = zScale;
+    return LT_OK;
+}
 void setGlobalLightScale(DVector *v) { if (v) g_lightScale = *v; }
 void offsetGlobalLightScale(DVector *v)
 {
@@ -655,8 +710,24 @@ void submitModels(GameSession &g)
         const ModelInfo *m = objectModel(o);
         if (!m || m->tris.empty()) continue;
         poseModel(*m, o->anim, o->animTime, nullptr, &pos, &nrm);
+        // The game's model hook: texture on or off, flags and added light for this draw.
+        DVector lightAdd(0, 0, 0);
+        ModelHookData hook{toHLocal(o), MHF_USETEXTURE, o->flags, &lightAdd};
+        static const bool noHook = getenv("SHOGO_NOMODELHOOK") != nullptr;
+        if (g_modelHook && !noHook) g_modelHook(&hook, g_modelHookUser);
+        static const bool traceHook = getenv("SHOGO_TRACE_MODELHOOK") != nullptr;
+        if (traceHook && (lightAdd.x != 0 || lightAdd.y != 0 || lightAdd.z != 0 || !(hook.m_Flags & MHF_USETEXTURE) ||
+                          hook.m_ObjectFlags != o->flags))
+            fprintf(stderr, "[modelhook] %s at (%.0f %.0f %.0f): add %.0f %.0f %.0f%s flags %x -> %x\n", o->filename.c_str(),
+                    o->pos.x, o->pos.y, o->pos.z, lightAdd.x, lightAdd.y, lightAdd.z,
+                    hook.m_Flags & MHF_USETEXTURE ? "" : ", untextured", o->flags, hook.m_ObjectFlags);
+        const DDWORD oflags = hook.m_ObjectFlags;
+        if (!(oflags & FLAG_VISIBLE)) continue;
+        const Vec3 add{std::clamp(lightAdd.x, 0.0f, 255.0f) / 255.0f, std::clamp(lightAdd.y, 0.0f, 255.0f) / 255.0f,
+                       std::clamp(lightAdd.z, 0.0f, 255.0f) / 255.0f};
         int tw = 1, th = 1;
         int tex = g.renderer.texture(o->skin, &tw, &th);
+        if (!(hook.m_Flags & MHF_USETEXTURE)) tex = -1;  // drawn in its light alone
         static const bool traceModels = getenv("SHOGO_TRACE_MODELS") != nullptr;
         if (traceModels && !o->traced) {
             o->traced = true;
@@ -665,12 +736,12 @@ void submitModels(GameSession &g)
         }
         DVector sc = o->scale;
         if (sc.x == 0 && sc.y == 0 && sc.z == 0) sc = DVector(1, 1, 1);
-        const bool bright = (o->flags & FLAG_NOLIGHT) != 0;
+        const bool bright = (oflags & FLAG_NOLIGHT) != 0;
         // Props pass their "TintColor" (default black) as the object color, so
         // black means untinted; anything else multiplies.
         float tint[3] = {o->color[0], o->color[1], o->color[2]};
         if (tint[0] == 0 && tint[1] == 0 && tint[2] == 0) tint[0] = tint[1] = tint[2] = 1;
-        const bool close = (o->flags & FLAG_REALLYCLOSE) != 0;
+        const bool close = (oflags & FLAG_REALLYCLOSE) != 0;
         for (size_t i = 0; i < pos.size(); ++i) {
             DVector p = quatRotate(o->rot, DVector(pos[i].x * sc.x, pos[i].y * sc.y, pos[i].z * sc.z));
             pos[i] = {o->pos.x + p.x, o->pos.y + p.y, o->pos.z + p.z};
@@ -750,9 +821,9 @@ void submitModels(GameSession &g)
                     lg += L->g * f;
                     lb += L->b * f;
                 }
-                v.r = lr * tint[0];
-                v.g = lg * tint[1];
-                v.b = lb * tint[2];
+                v.r = (lr + add.x) * tint[0];
+                v.g = (lg + add.y) * tint[1];
+                v.b = (lb + add.z) * tint[2];
                 dp.verts.push_back(v);
             }
             g.renderer.addDynamic(std::move(dp), close);
@@ -850,6 +921,10 @@ DRESULT renderCamera(HLOCALOBJ h)
     soundCameraMoved(c.pos, c.right);
     g.renderer.setLightScale(g_lightScale.x, g_lightScale.y, g_lightScale.z);
     g.renderer.setScreenAdd(cam->lightAdd.x, cam->lightAdd.y, cam->lightAdd.z);
+    static const bool noPan = getenv("SHOGO_NOSKYPAN") != nullptr;
+    const GlobalPan &pan = g_pan[GLOBALPAN_SKYSHADOW];
+    g.renderer.setSkyPan(noPan || pan.texture.empty() ? -1 : g.renderer.texture(pan.texture), pan.xOffset, pan.zOffset,
+                         pan.xScale, pan.zScale);
     screenForRenderer();
     g.renderer.render(*g.ctx->screen, c);
     static const bool traceCamera = getenv("SHOGO_TRACE_CAMERA") != nullptr;
@@ -1099,6 +1174,9 @@ void GameSession::installClient(ClientDE *c, ClientContext *context)
     c->OffsetGlobalLightScale = offsetGlobalLightScale;
     c->GetCameraLightAdd = getCameraLightAdd;
     c->SetCameraLightAdd = setCameraLightAdd;
+    c->SetGlobalPanTexture = setGlobalPanTexture;
+    c->SetGlobalPanInfo = setGlobalPanInfo;
+    c->SetModelHook = setModelHook;
     c->RenderCamera = renderCamera;
     c->RenderObjects = renderObjects;
     c->Parse = parseCommand;

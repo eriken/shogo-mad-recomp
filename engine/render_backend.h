@@ -25,6 +25,7 @@ enum : uint32_t {
     kSurfSky = 0x10,
     kSurfFullbright = 0x20,
     kSurfLightmapped = 0x80,
+    kSurfPanSky = 0x8000,  // takes the panning sky shadow (outdoor surfaces)
 };
 
 struct Camera {
@@ -109,6 +110,12 @@ struct RenderFrame {
     const RenderResources *res = nullptr;
     const std::vector<Light> *lights = nullptr;  // for lit polygons
     float lightScale[3] = {1, 1, 1};             // multiplies lit polygons' light
+    // The panning sky shadow (SetGlobalPanTexture/Info): kSurfPanSky polygons'
+    // baked light is multiplied by this texture (its red channel, bilinear,
+    // repeating), laid over the world from above: texel = x * pan[2] + pan[0],
+    // z * pan[3] + pan[1]. -1: none.
+    int panTex = -1;
+    float pan[4] = {0, 0, 1, 1};
     RenderStats *stats = nullptr;                // drawnPolys, litPolys, lightmaps are counted here
 };
 

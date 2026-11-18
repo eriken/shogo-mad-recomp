@@ -120,6 +120,7 @@ polygon's texture; for an animated `.spr` texture, of its first frame.
 | 0x10 | sky portal: the sky box shows through |
 | 0x20 | fullbright (signs, lights, environment maps) |
 | 0x80 | lightmapped |
+| 0x8000 | takes the panning sky shadow (only in the levels whose `WorldProperties` turn `PanSky` on) |
 
 ### Sky
 

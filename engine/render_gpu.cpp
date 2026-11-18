@@ -30,6 +30,7 @@ constant uint kRound = 4;       // soft round falloff across the texture
 constant uint kMasked = 8;      // the polygon asked for blending: the mask applies
 constant uint kAlpha = 16;      // drawn alpha-blended
 constant uint kAdditive = 32;   // drawn additively
+constant uint kPanSky = 64;     // takes the panning sky shadow
 
 struct VIn {
     float3 pos [[attribute(0)]];
@@ -65,6 +66,8 @@ struct Light {
 struct FU {
     float4 lightScale;
     float4 atlasInv;  // 1 / atlas w, h; light count; smooth textures
+    float4 pan;       // sky shadow: x offset, z offset, 1 / x scale, 1 / z scale (texels)
+    float4 panInv;    // 1 / its w, h; on
     Light lights[64];
 };
 
@@ -89,7 +92,9 @@ vertex VOut vs_world(VIn in [[stage_in]], constant VU &u [[buffer(0)]])
 // The software rasterizer's per-pixel rules (render_software.cpp).
 fragment float4 fs_world(VOut in [[stage_in]], constant FU &u [[buffer(0)]],
                          texture2d<float> tex [[texture(0)]], texture2d<float> lightmaps [[texture(1)]],
-                         sampler texSampler [[sampler(0)]], sampler lmSampler [[sampler(1)]])
+                         texture2d<float> panTex [[texture(2)]],
+                         sampler texSampler [[sampler(0)]], sampler lmSampler [[sampler(1)]],
+                         sampler panSampler [[sampler(2)]])
 {
     const uint flags = uint(in.mode.y);
     const bool blended = (flags & (kAlpha | kAdditive)) != 0;
@@ -98,6 +103,10 @@ fragment float4 fs_world(VOut in [[stage_in]], constant FU &u [[buffer(0)]],
         // Bilinear between the samples, clamped to this lightmap's own texels.
         float2 c = clamp(in.luv, float2(0), in.lmRect.zw - 1);
         light = lightmaps.sample(lmSampler, (in.lmRect.xy + c + 0.5) * u.atlasInv.xy).rgb;
+    }
+    if ((flags & kPanSky) && u.panInv.z > 0) {
+        float2 t = float2(in.world.x, in.world.z) * u.pan.zw + u.pan.xy;
+        light *= panTex.sample(panSampler, t * u.panInv.xy).r;
     }
     if (in.lit > 0) {
         light *= u.lightScale.rgb;
@@ -169,7 +178,7 @@ struct GpuVert {
     float alpha, flags;
 };
 
-enum : uint32_t { kHasAlpha = 1, kColorKey = 2, kRound = 4, kMasked = 8, kAlphaBlend = 16, kAdditiveBlend = 32 };
+enum : uint32_t { kHasAlpha = 1, kColorKey = 2, kRound = 4, kMasked = 8, kAlphaBlend = 16, kAdditiveBlend = 32, kPanSky = 64 };
 constexpr int kMaxLights = 64;
 
 struct VertUniforms {
@@ -182,6 +191,8 @@ struct GpuLight {
 struct FragUniforms {
     float lightScale[4];
     float atlasInv[4];  // 1 / atlas w, h; light count
+    float pan[4];       // sky shadow: offsets, 1 / scales
+    float panInv[4];    // 1 / its size; on
     GpuLight lights[kMaxLights];
 };
 
@@ -247,7 +258,7 @@ private:
     SDL_GPUTexture *m_msaa = nullptr;    // multisampled colour, resolved into m_target
     bool m_msaaReady = false;            // m_msaa holds this frame
     SDL_GPUGraphicsPipeline *m_pipelines[kPipelines] = {};
-    SDL_GPUSampler *m_texSampler = nullptr, *m_lmSampler = nullptr;
+    SDL_GPUSampler *m_texSampler = nullptr, *m_lmSampler = nullptr, *m_panSampler = nullptr;
     SDL_GPUTexture *m_white = nullptr;
 
     // The frame being drawn.
@@ -285,6 +296,7 @@ GpuBackend::~GpuBackend()
     if (m_white) SDL_ReleaseGPUTexture(m_device, m_white);
     if (m_texSampler) SDL_ReleaseGPUSampler(m_device, m_texSampler);
     if (m_lmSampler) SDL_ReleaseGPUSampler(m_device, m_lmSampler);
+    if (m_panSampler) SDL_ReleaseGPUSampler(m_device, m_panSampler);
     for (SDL_GPUGraphicsPipeline *p : m_pipelines)
         if (p) SDL_ReleaseGPUGraphicsPipeline(m_device, p);
     if (m_ownsDevice) {
@@ -328,7 +340,7 @@ bool GpuBackend::init(SDL_GPUDevice *device, GpuScreen *screen, const GpuSetting
     SDL_GPUShader *vs = SDL_CreateGPUShader(m_device, &si);
     si.entrypoint = "fs_world";
     si.stage = SDL_GPU_SHADERSTAGE_FRAGMENT;
-    si.num_samplers = 2;
+    si.num_samplers = 3;
     SDL_GPUShader *fs = SDL_CreateGPUShader(m_device, &si);
     if (!vs || !fs) {
         if (vs) SDL_ReleaseGPUShader(m_device, vs);
@@ -434,11 +446,13 @@ bool GpuBackend::init(SDL_GPUDevice *device, GpuScreen *screen, const GpuSetting
     smp.min_filter = smp.mag_filter = SDL_GPU_FILTER_LINEAR;
     smp.address_mode_u = smp.address_mode_v = smp.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE;
     m_lmSampler = SDL_CreateGPUSampler(m_device, &smp);
+    smp.address_mode_u = smp.address_mode_v = smp.address_mode_w = SDL_GPU_SAMPLERADDRESSMODE_REPEAT;
+    m_panSampler = SDL_CreateGPUSampler(m_device, &smp);  // bilinear, repeating, top level only
 
     m_white = makeTexture(SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM, SDL_GPU_TEXTUREUSAGE_SAMPLER, 1, 1);
     const uint32_t white = 0xFFFFFFFF;
     if (m_white) uploadTexture(m_white, &white, 1, 1, 4);
-    return m_texSampler && m_lmSampler && m_white;
+    return m_texSampler && m_lmSampler && m_panSampler && m_white;
 }
 
 SDL_GPUTexture *GpuBackend::makeTexture(SDL_GPUTextureFormat format, Uint32 usage, int w, int h, int levels,
@@ -695,6 +709,7 @@ Geometry GpuBackend::build(const std::vector<DrawPoly> &polys, const DrawPass &p
         if (p->blend != Opaque) flags |= kMasked;
         if (it.blend == Alpha) flags |= kAlphaBlend;
         if (it.blend == Additive) flags |= kAdditiveBlend;
+        if (!pass.sky && (p->flags & kSurfPanSky)) flags |= kPanSky;
         const float alpha = std::clamp(it.alpha, 0.0f, 1.0f);
         const Vec3 &n = p->normal, &v0 = p->verts[0].p;
         const float nd = n.x * v0.x + n.y * v0.y + n.z * v0.z;
@@ -836,6 +851,15 @@ void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
     fu.atlasInv[1] = 1.0f / float(m_atlasH);
     fu.atlasInv[2] = float(nLights);
     fu.atlasInv[3] = m_settings.smoothTextures ? 1.0f : 0.0f;
+    SDL_GPUTexture *pan = nullptr;
+    if (m_frame.panTex >= 0) {
+        const RenderTexture &t = m_frame.res->textures[size_t(m_frame.panTex)];
+        pan = texture(m_frame.panTex, 0);
+        for (int i = 0; i < 4; ++i) fu.pan[i] = m_frame.pan[i];
+        fu.panInv[0] = 1.0f / float(t.w);
+        fu.panInv[1] = 1.0f / float(t.h);
+        fu.panInv[2] = pan ? 1.0f : 0.0f;
+    }
 
     if (m_msaa && !m_msaaReady) copyBackground();
     SDL_GPUColorTargetInfo ct{};
@@ -867,8 +891,10 @@ void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
             bound = batch.pipeline;
         }
         SDL_GPUTexture *tex = batch.tex ? batch.tex : m_white;
-        SDL_GPUTextureSamplerBinding sb[2] = {{tex, m_texSampler}, {m_atlas ? m_atlas : m_white, m_lmSampler}};
-        SDL_BindGPUFragmentSamplers(rp, 0, sb, 2);
+        SDL_GPUTextureSamplerBinding sb[3] = {{tex, m_texSampler},
+                                              {m_atlas ? m_atlas : m_white, m_lmSampler},
+                                              {pan ? pan : m_white, m_panSampler}};
+        SDL_BindGPUFragmentSamplers(rp, 0, sb, 3);
         SDL_DrawGPUPrimitives(rp, batch.count, 1, batch.first, 0);
     }
     SDL_EndGPURenderPass(rp);

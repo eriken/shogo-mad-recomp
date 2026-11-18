@@ -79,6 +79,8 @@ RenderFrame WorldRenderer::frame(const Camera &cam)
     f.res = &m_res;
     f.lights = &m_lights;
     for (int i = 0; i < 3; ++i) f.lightScale[i] = m_lightScale[i];
+    f.panTex = m_panTex >= 0 && size_t(m_panTex) < m_res.textures.size() ? m_panTex : -1;
+    for (int i = 0; i < 4; ++i) f.pan[i] = m_pan[i];
     f.stats = &m_stats;
     return f;
 }

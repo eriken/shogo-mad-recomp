@@ -51,6 +51,17 @@ public:
 
     // Added to every pixel of the view after drawing (SetCameraLightAdd), 0..1.
     void setScreenAdd(float r, float g, float b) { m_screenAdd[0] = r; m_screenAdd[1] = g; m_screenAdd[2] = b; }
+    // The panning sky shadow for the next render(): a texture (from texture(),
+    // -1 for none) over the surfaces that take it, scrolled by the offsets (in
+    // texels) and spread over scale world units per texel.
+    void setSkyPan(int tex, float xOffset, float zOffset, float xScale, float zScale)
+    {
+        m_panTex = tex;
+        m_pan[0] = xOffset;
+        m_pan[1] = zOffset;
+        m_pan[2] = xScale != 0 ? 1.0f / xScale : 1.0f;
+        m_pan[3] = zScale != 0 ? 1.0f / zScale : 1.0f;
+    }
 
     // Builds draw lists from a parsed world; textures come from fs.
     void load(const WorldData &world, const ResourceFS &fs);
@@ -99,6 +110,8 @@ private:
     void recycle(std::vector<DrawPoly> &list);
     float m_lightScale[3] = {1, 1, 1};
     float m_screenAdd[3] = {0, 0, 0};
+    int m_panTex = -1;
+    float m_pan[4] = {0, 0, 1, 1};
     Stats m_stats;
 };
 

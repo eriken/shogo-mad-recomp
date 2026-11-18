@@ -161,6 +161,8 @@ void SoftwareBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &p
             if (nLights) ++stats.litPolys;
         }
         const bool scaled = poly.lit && !sky && (lightScale[0] != 1 || lightScale[1] != 1 || lightScale[2] != 1);
+        const RenderTexture *pan =
+            !sky && (poly.flags & kSurfPanSky) && m_frame.panTex >= 0 ? &resources.textures[size_t(m_frame.panTex)] : nullptr;
 
         // Fan into triangles and rasterize each with edge functions.
         for (size_t k = 1; k + 1 < sv.size(); ++k) {
@@ -207,6 +209,26 @@ void SoftwareBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &p
                         r = c[0];
                         g = c[1];
                         b = c[2];
+                    }
+                    if (pan) {
+                        // The cloud shadow over this pixel's place in the world:
+                        // bilinear between texel centres, repeating.
+                        float vx = (px - cx) * z / focal, vy = (cyScreen - py) * z / focal;
+                        float wx = eye.x + right.x * vx + up.x * vy + fwd.x * z;
+                        float wz = eye.z + right.z * vx + up.z * vy + fwd.z * z;
+                        float su = wx * m_frame.pan[2] + m_frame.pan[0] - 0.5f, sv = wz * m_frame.pan[3] + m_frame.pan[1] - 0.5f;
+                        float fu = std::floor(su), fv = std::floor(sv);
+                        auto wrap = [](int i, int n) { i %= n; return i < 0 ? i + n : i; };
+                        int i0 = wrap(int(fu), pan->w), j0 = wrap(int(fv), pan->h);
+                        int i1 = i0 + 1 == pan->w ? 0 : i0 + 1, j1 = j0 + 1 == pan->h ? 0 : j0 + 1;
+                        auto red = [&](int i, int j) { return float((pan->px[size_t(j) * size_t(pan->w) + size_t(i)] >> 16) & 0xFF); };
+                        float tu = su - fu, tv = sv - fv;
+                        float top = red(i0, j0) + (red(i1, j0) - red(i0, j0)) * tu;
+                        float bot = red(i0, j1) + (red(i1, j1) - red(i0, j1)) * tu;
+                        float s = (top + (bot - top) * tv) * (1.0f / 255.0f);
+                        r *= s;
+                        g *= s;
+                        b *= s;
                     }
                     if (scaled) {
                         r *= lightScale[0];
