@@ -6,6 +6,7 @@
 #include "engine/game_host.h"
 #include "engine/game_import.h"
 #include "engine/inno_setup.h"
+#include "engine/gpu_present.h"
 #include "engine/launcher.h"
 #include "engine/sound.h"
 
@@ -156,14 +157,28 @@ int main(int argc, char **argv)
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_Window *window = nullptr;
-    SDL_Renderer *renderer = nullptr;
-    if (!SDL_CreateWindowAndRenderer("Shogo: Mobile Armor Division", 1280, 960, SDL_WINDOW_RESIZABLE |
-                                     SDL_WINDOW_HIGH_PIXEL_DENSITY, &window, &renderer)) {
+    SDL_Window *window = SDL_CreateWindow("Shogo: Mobile Armor Division", 1280, 960,
+                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    if (!window) {
         fprintf(stderr, "SDL window: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_SetRenderVSync(renderer, 1);
+    // Frames go out through the GPU; SDL's 2D renderer is the fallback for
+    // machines without a usable GPU device.
+    shogo::GpuPresenter gpu;
+    SDL_Renderer *renderer = nullptr;
+    if (gpu.init(window)) {
+        gpu.setVSync(true);
+        printf("GPU: %s\n", gpu.driver());
+    } else {
+        fprintf(stderr, "No GPU device (%s); using SDL's renderer\n", SDL_GetError());
+        renderer = SDL_CreateRenderer(window, nullptr);
+        if (!renderer) {
+            fprintf(stderr, "SDL renderer: %s\n", SDL_GetError());
+            return 1;
+        }
+        SDL_SetRenderVSync(renderer, 1);
+    }
     if (SDL_Surface *icon = shogo::loadDockIcon(".")) {  // GOG's icon, if the data has it
         SDL_SetWindowIcon(window, icon);
         SDL_DestroySurface(icon);
@@ -182,6 +197,10 @@ int main(int argc, char **argv)
     shogo::GameHost host;
     host.commandLine = conVars;
     host.client.present = [&](const shogo::Surface &s) {
+        if (!renderer) {
+            gpu.present(s);
+            return;
+        }
         if (!texture || texW != s.width || texH != s.height) {
             if (texture) SDL_DestroyTexture(texture);
             texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STREAMING, s.width,
@@ -268,7 +287,8 @@ int main(int argc, char **argv)
     if (!host.client.quitMessage.empty())
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Shogo", host.client.quitMessage.c_str(), window);
     if (texture) SDL_DestroyTexture(texture);
-    SDL_DestroyRenderer(renderer);
+    if (renderer) SDL_DestroyRenderer(renderer);
+    gpu.shutdown();  // before the window goes
     SDL_DestroyWindow(window);
     SDL_Quit();
     return 0;

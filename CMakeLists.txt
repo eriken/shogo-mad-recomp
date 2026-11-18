@@ -149,7 +149,7 @@ add_dependencies(shogo-probe shogo_object shogo_cshell)
 
 # shogo: the game in a window.
 find_package(SDL3 CONFIG REQUIRED)
-add_executable(shogo engine/shogo_main.cpp engine/launcher.cpp)
+add_executable(shogo engine/shogo_main.cpp engine/launcher.cpp engine/gpu_present.cpp)
 target_include_directories(shogo PRIVATE "${CMAKE_SOURCE_DIR}")
 target_link_libraries(shogo PRIVATE shogo_engine shogo_compat SDL3::SDL3)
 target_compile_definitions(shogo PRIVATE SHOGO_RECOMP_VERSION="${PROJECT_VERSION}")
