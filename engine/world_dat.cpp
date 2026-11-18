@@ -1,5 +1,9 @@
 #include "engine/world_dat.h"
 
+#include <cmath>
+
+#include <algorithm>
+
 #include <cstdio>
 #include <cstring>
 #include <stdexcept>
@@ -255,6 +259,43 @@ void readBsp(Reader &r, WorldBsp &w, size_t end)
     readLighting(r, w, end);
 }
 }  // namespace
+
+Vec3 WorldBsp::lightAt(size_t polyIndex, const Vec3 &p) const
+{
+    if (polyIndex >= polys.size()) return {1, 1, 1};
+    const WorldPoly &poly = polys[polyIndex];
+    const WorldSurface &s = surfaces[poly.surface];
+    if (s.flags & 0x20) return {1, 1, 1};  // fullbright
+    auto dot = [](const Vec3 &a, const Vec3 &b) { return a.x * b.x + a.y * b.y + a.z * b.z; };
+    if (!poly.lightmap.empty() && poly.lmW > 0 && poly.lmH > 0) {
+        Vec3 r{p.x - poly.lmOrigin.x, p.y - poly.lmOrigin.y, p.z - poly.lmOrigin.z};
+        float u = std::clamp(dot(r, s.lmP) / kLightmapSpacing, 0.0f, float(poly.lmW - 1));
+        float v = std::clamp(dot(r, s.lmQ) / kLightmapSpacing, 0.0f, float(poly.lmH - 1));
+        int i0 = std::min((int)u, poly.lmW - 1), j0 = std::min((int)v, poly.lmH - 1);
+        int i1 = std::min(i0 + 1, poly.lmW - 1), j1 = std::min(j0 + 1, poly.lmH - 1);
+        float fu = u - float(i0), fv = v - float(j0);
+        auto texel = [&](int i, int j) {
+            uint16_t c = poly.lightmap[size_t(j) * poly.lmW + size_t(i)];
+            return Vec3{float((c >> 11) & 31) / 31.0f, float((c >> 5) & 63) / 63.0f, float(c & 31) / 31.0f};
+        };
+        Vec3 a = texel(i0, j0), b = texel(i1, j0), c = texel(i0, j1), d = texel(i1, j1);
+        auto mix = [](const Vec3 &x, const Vec3 &y, float t) {
+            return Vec3{x.x + (y.x - x.x) * t, x.y + (y.y - x.y) * t, x.z + (y.z - x.z) * t};
+        };
+        return mix(mix(a, b, fu), mix(c, d, fu), fv);
+    }
+    Vec3 sum{0, 0, 0};
+    float weight = 0;
+    for (const WorldPolyVertex &v : poly.verts) {
+        const Vec3 &q = points[v.point];
+        Vec3 d{q.x - p.x, q.y - p.y, q.z - p.z};
+        float w = 1.0f / (std::sqrt(dot(d, d)) + 1.0f);
+        sum = {sum.x + v.r / 255.0f * w, sum.y + v.g / 255.0f * w, sum.z + v.b / 255.0f * w};
+        weight += w;
+    }
+    if (weight <= 0) return {1, 1, 1};
+    return {sum.x / weight, sum.y / weight, sum.z / weight};
+}
 
 const WorldProp *WorldObject::find(const char *name) const
 {

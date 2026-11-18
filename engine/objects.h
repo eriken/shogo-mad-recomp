@@ -57,6 +57,7 @@ struct EngineObject {
     float animTime = 0;     // ms
     bool animLoop = true, animDone = false, animStarted = false;
     std::vector<bool> hiddenNodes;
+    float worldLight[3] = {-1, -1, -1};  // models: the world's baked light where they stand (smoothed)
     bool traced = false;
     int tracedState = 0;  // debug traces print an object once  // SetModelNodeHideStatus, by node index
 

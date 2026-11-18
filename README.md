@@ -27,12 +27,12 @@ This repository contains **only our own code**. You supply two things yourself:
 | Engine: game flow | `StartGame` with a local server, client/server and object messages, special-effect messages, console variables (`+runworld`), client objects and cameras, `RenderCamera` from the player's camera, `Physics()`/`Common()` interfaces |
 | Engine: input | The game's key bindings (`autoexec.cfg`: `AddAction`, `rangebind`, `scale`), `IsCommandOn`, mouse look (relative mouse while playing) |
 | Engine: movement | Collision against level geometry, world models and solid objects (swept ellipsoids, collide and slide, stair steps), gravity, standing-on, touch notifications (with `GetLastCollision`), ray casts that name the polygon hit and its surface type, inside/outside point tests on the BSP (`GetPointStatus`), object searches in a sphere; the player walks, runs and jumps |
-| Engine: models | `.ABC` models ([format notes](docs/abc-format.md)) drawn textured and animated (node hierarchy, interpolated keyframes, vertex animation), first-person weapons over everything; user dims, string keys, node transforms, hidden nodes, attachments; simple fixed lighting for now |
+| Engine: models | `.ABC` models ([format notes](docs/abc-format.md)) drawn textured and animated (node hierarchy, interpolated keyframes, vertex animation), first-person weapons over everything; user dims, string keys, node transforms, hidden nodes, attachments; lit by the level's baked light on the floor beneath them (lightmap or vertex light, half its tint, smoothed as they move) with directional shading and dynamic lights |
 | Engine: effects | Sprites (`.SPR` animations, camera-facing or rotatable, additive or color-keyed, shaped by the DTX alpha mask), particle systems (the game's `DEParticle` lists, gravity, lifetimes) and line systems; muzzle flashes, impacts, smoke, shell casings. Particle size is a guess (`kParticleWorldScale`) |
 | Engine: lights | Dynamic lights (`OT_LIGHT` objects: muzzle flashes, projectiles, explosions, flickering level lights) add light per pixel to the world polygons they reach and per vertex to models; `SetGlobalLightScale` tints the baked light, `SetCameraLightAdd` tints the screen (damage flashes) |
 | Engine: sound | Sound effects from `SOUND.REZ` (all PCM WAV): a software mixer at 44.1 kHz stereo with local, ambient and 3D sounds (inner/outer radius falloff, left/right pan), loops, sounds attached to objects, handles (`KillSound`, `IsSoundDone`...), volume, a soft limiter; SDL3 output in the game, `--audio-out` in the probe. No reverb or doppler |
 | Engine: saves | Quick save/load (F6/F7), the save and load menus, the level-start reload save, and level changes that carry the player over (`SaveObjects`/`RestoreObjects` in our own file format, object references remapped on load, inter-object links, client references so the player is put back into its saved object, the game console's per-level settings). Shogo's original `.sav` files aren't read; portal states aren't saved |
-| Engine: not yet | World lighting on models (they use a fixed light plus dynamic lights), music (DirectMusic data: DLS banks, styles, segments; the game is told there's no music driver), Smacker movies (intros are skipped), networking |
+| Engine: not yet | Music (DirectMusic data: DLS banks, styles, segments; the game is told there's no music driver), Smacker movies (intros are skipped), networking |
 | Engine: everything else | Logging stubs (every `ClientDE`/`ServerDE` entry point), generated from the API headers |
 
 `ctest --test-dir build` runs the engine unit tests (game-data tests use `gamedata/`).
@@ -43,11 +43,12 @@ frame, probe only), `SHOGO_TRACE_MOVES` (each client move and what it hit),
 `SHOGO_TRACE_INPUT`, `SHOGO_TRACE_PHYSICS`, `SHOGO_TRACE_ANIM`, `SHOGO_TRACE_MESSAGES`,
 `SHOGO_TRACE_SAVE` (each save and restore), `SHOGO_TRACE_CAMERA` (camera position, light scale and polygons
 drawn, every 30 frames), `SHOGO_TRACE_FX` (sprites, particle systems and special-effect messages),
-`SHOGO_TRACE_MODELS` (each model's skin and color once), `SHOGO_TRACE_LIGHTS` (each light once, lit
+`SHOGO_TRACE_MODELS` (each model's skin and color once), `SHOGO_TRACE_MODELLIGHT` (the world light sampled
+for the first-person weapon), `SHOGO_TRACE_LIGHTS` (each light once, lit
 polygon counts), `SHOGO_TRACE_SOUND` (each sound started, and files that don't load), `SHOGO_TRACE_WORLDMODELS`
 (each world model moving, returning home or hiding), `SHOGO_TRACE_ALL` (every stub call). `SHOGO_NOMODELS`, `SHOGO_NOEFFECTS`,
-`SHOGO_NOLIGHTS`, `SHOGO_NOLIGHTMAPS` and `SHOGO_NOPLACEMENTS` skip models, effects, dynamic lights,
-lightmaps (vertex light instead) or world-model movement (any value, even empty, counts as set).
+`SHOGO_NOLIGHTS`, `SHOGO_NOLIGHTMAPS`, `SHOGO_NOPLACEMENTS` and `SHOGO_NOMODELWORLDLIGHT` skip models, effects, dynamic lights,
+lightmaps (vertex light instead), world-model movement or world light on models (a fixed light instead) (any value, even empty, counts as set).
 
 ## Setup
 

@@ -151,6 +151,37 @@ static void testWorlds(const shogo::ResourceFS &fs)
     CHECK(modelsLit == models && lightmaps > 50000 && lmVertsInside * 100 > lmVerts * 99);
     printf("  BSP: %zu of %zu start points inside, far points outside in %zu\n", startsInside, starts, farOutside);
 
+    // Light at a point on a polygon: a lightmap's origin reads its first sample;
+    // a vertex-lit polygon at a corner reads close to that corner's light.
+    {
+        auto q = shogo::WorldData::parse(*fs.read("WORLDS/02_QUARTERS.DAT"), nullptr);
+        CHECK(q != nullptr);
+        if (q) {
+            const auto &m = q->models[0];
+            bool lmChecked = false, vertexChecked = false;
+            for (size_t i = 0; i < m.polys.size() && !(lmChecked && vertexChecked); ++i) {
+                const auto &p = m.polys[i];
+                const auto &s = m.surfaces[p.surface];
+                if (s.flags & 0x20) continue;
+                if (!lmChecked && !p.lightmap.empty()) {
+                    uint16_t c = p.lightmap[0];
+                    shogo::Vec3 l = m.lightAt(i, p.lmOrigin);
+                    CHECK(std::fabs(l.x - ((c >> 11) & 31) / 31.0f) < 0.01f && std::fabs(l.y - ((c >> 5) & 63) / 63.0f) < 0.01f &&
+                          std::fabs(l.z - (c & 31) / 31.0f) < 0.01f);
+                    lmChecked = true;
+                } else if (!vertexChecked && p.lightmap.empty() && !(s.flags & 0x80)) {
+                    const auto &v = p.verts[0];
+                    shogo::Vec3 l = m.lightAt(i, m.points[v.point]);
+                    // The other corners pull a little: within 0.25 of the corner's own light.
+                    CHECK(std::fabs(l.x - v.r / 255.0f) < 0.25f && std::fabs(l.y - v.g / 255.0f) < 0.25f &&
+                          std::fabs(l.z - v.b / 255.0f) < 0.25f);
+                    vertexChecked = true;
+                }
+            }
+            CHECK(lmChecked && vertexChecked);
+        }
+    }
+
     // Polygon handles: collision triangles name their polygon, and the polygon's
     // texture carries a surface type (DTX header word at offset 20).
     {

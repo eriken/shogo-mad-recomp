@@ -102,6 +102,10 @@ struct WorldBsp {
     // True if p is in open space (an "in" leaf of the BSP), false in solid or
     // outside the level. Starts at rootNode; child [0] is the plane's negative side.
     bool pointInside(const Vec3 &p) const;
+
+    // Baked light (0..1 RGB) at a point on a polygon: its lightmap, bilinear,
+    // or else its vertex light weighted by distance; fullbright surfaces are 1.
+    Vec3 lightAt(size_t poly, const Vec3 &p) const;
 };
 
 struct WorldData {

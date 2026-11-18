@@ -462,8 +462,59 @@ std::vector<WorldRenderer::Light> gatherLights(std::vector<bool> *onlyWorld = nu
 }
 
 // Poses every visible model object and hands its triangles to the renderer.
-// Lighting is simple for now: the object's color, an ambient term and one
-// light from above.
+// The level's ambient light ("AmbientLight r g b" in the world info), 0..1.
+Vec3 worldAmbient(const WorldData &w)
+{
+    size_t at = w.info.find("AmbientLight");
+    float r = 0, g = 0, b = 0;
+    if (at != std::string::npos && sscanf(w.info.c_str() + at, "AmbientLight %f %f %f", &r, &g, &b) == 3)
+        return {r / 255.0f, g / 255.0f, b / 255.0f};
+    return {0.5f, 0.5f, 0.5f};
+}
+
+// The baked light on the floor under p: a ray straight down to the first
+// visible world polygon (world models where they are now), read from its
+// lightmap or vertex light. Falls back to the level's ambient light.
+Vec3 worldLightBelow(GameSession &g, const Vec3 &p)
+{
+    const WorldData *w = g.server.world.get();
+    if (!w) return {1, 1, 1};
+    DVector from(p.x, p.y + 1, p.z);
+    for (int tries = 0; tries < 4; ++tries) {
+        IntersectQuery q;
+        q.m_From = from;
+        q.m_To = DVector(p.x, p.y - 4000, p.z);
+        q.m_Flags = IGNORE_NONSOLID | INTERSECT_HPOLY;
+        IntersectInfo info;
+        memset(&info, 0, sizeof(info));
+        if (!intersectSegment(g.server, &q, &info, true) || info.m_hPoly == INVALID_HPOLY) break;
+        size_t model = info.m_hPoly >> 24, poly = info.m_hPoly & 0xFFFFFF;
+        if (model >= w->models.size() || poly >= w->models[model].polys.size()) break;
+        const WorldBsp &bsp = w->models[model];
+        DDWORD sflags = bsp.surfaces[bsp.polys[poly].surface].flags;
+        if (sflags & (kSurfInvisible | kSurfSky)) {
+            // Hull brushes and sky portals carry no light; look past them.
+            from = DVector(info.m_Point.x, info.m_Point.y - 1, info.m_Point.z);
+            continue;
+        }
+        Vec3 hit{info.m_Point.x, info.m_Point.y, info.m_Point.z};
+        if (model > 0)
+            if (EngineObject *o = toObject(info.m_hObject); o && o->bsp == int(model)) {
+                // Back to where the polygon was built: base + R^-1 (hit - pos).
+                const DRotation &b = o->baseRot;
+                DRotation r = quatMul(o->rot, DRotation(-b.m_Vec.x, -b.m_Vec.y, -b.m_Vec.z, b.m_Spin));
+                DRotation inv(-r.m_Vec.x, -r.m_Vec.y, -r.m_Vec.z, r.m_Spin);
+                DVector d = quatRotate(quatNormalize(inv), DVector(hit.x - o->pos.x, hit.y - o->pos.y, hit.z - o->pos.z));
+                hit = {o->basePos.x + d.x, o->basePos.y + d.y, o->basePos.z + d.z};
+            }
+        return bsp.lightAt(poly, hit);
+    }
+    return worldAmbient(*w);
+}
+
+// Models take the world's light where they stand (worldLightBelow, smoothed
+// over a few frames), shaded by a fixed direction so they keep their shape,
+// plus dynamic lights; tinted by the object's color.
 void submitModels(GameSession &g)
 {
     static const bool noModels = getenv("SHOGO_NOMODELS") != nullptr;
@@ -471,6 +522,7 @@ void submitModels(GameSession &g)
     updateAttachments();
     std::vector<Vec3> pos, nrm;
     const Vec3 light = normalized(Vec3{0.3f, 1.0f, -0.4f});
+    static const bool fixedLight = getenv("SHOGO_NOMODELWORLDLIGHT") != nullptr;
     std::vector<bool> onlyWorld;
     const std::vector<WorldRenderer::Light> lights = gatherLights(&onlyWorld);
     std::vector<const WorldRenderer::Light *> near;
@@ -512,7 +564,31 @@ void submitModels(GameSession &g)
                 if (dot(d, d) < rr * rr) near.push_back(&lights[li]);
             }
         }
-        const Vec3 scale3{g_lightScale.x, g_lightScale.y, g_lightScale.z};
+        Vec3 base{1, 1, 1};  // world light where the model stands
+        if (!bright && !fixedLight) {
+            Vec3 target = worldLightBelow(g, {o->pos.x, o->pos.y, o->pos.z});
+            // The floor's color is a strong cue on a floor and too strong on a model:
+            // keep its brightness, half its tint.
+            float grey = (target.x + target.y + target.z) / 3.0f;
+            target = {grey + (target.x - grey) * 0.5f, grey + (target.y - grey) * 0.5f, grey + (target.z - grey) * 0.5f};
+            float *wl = o->worldLight;
+            if (wl[0] < 0) {
+                wl[0] = target.x;
+                wl[1] = target.y;
+                wl[2] = target.z;
+            } else {
+                const float k = 0.25f;  // per frame: crossing a light pool fades over a few frames
+                wl[0] += (target.x - wl[0]) * k;
+                wl[1] += (target.y - wl[1]) * k;
+                wl[2] += (target.z - wl[2]) * k;
+            }
+            base = {wl[0], wl[1], wl[2]};
+            static const bool traceLight = getenv("SHOGO_TRACE_MODELLIGHT") != nullptr;
+            if (traceLight && (o->flags & FLAG_REALLYCLOSE))
+                fprintf(stderr, "[modellight] %s at (%.0f %.0f %.0f): %.2f %.2f %.2f\n", o->filename.c_str(), o->pos.x,
+                        o->pos.y, o->pos.z, target.x, target.y, target.z);
+        }
+        const Vec3 scale3{g_lightScale.x * base.x, g_lightScale.y * base.y, g_lightScale.z * base.z};
         const bool anyHidden = std::find(o->hiddenNodes.begin(), o->hiddenNodes.end(), true) != o->hiddenNodes.end();
         for (const ModelTri &t : m->tris) {
             if (anyHidden) {
@@ -534,7 +610,9 @@ void submitModels(GameSession &g)
                 v.p = pos[t.v[k]];
                 v.u = t.uv[k * 2] * (float)tw;
                 v.v = t.uv[k * 2 + 1] * (float)th;
-                float l = bright ? 1.0f : 0.45f + 0.55f * std::max(0.0f, dot(nrm[t.v[k]], light));
+                // Directional shading: the lit side a little over the world light, the dark side under.
+                float shade = 0.45f + 0.55f * std::max(0.0f, dot(nrm[t.v[k]], light));
+                float l = bright ? 1.0f : fixedLight ? shade : shade / 0.85f;
                 float lr = bright ? l : l * scale3.x, lg = bright ? l : l * scale3.y, lb = bright ? l : l * scale3.z;
                 for (const WorldRenderer::Light *L : near) {
                     Vec3 d = L->pos - v.p;
