@@ -20,6 +20,7 @@ public:
     void setVSync(bool on);
     void present(const Surface &frame);
     const char *driver() const;
+    SDL_GPUDevice *device() const { return m_device; }
     void shutdown();  // releases the window; safe to call twice
 
 private:

@@ -142,14 +142,15 @@ set_tests_properties(engine-tests PROPERTIES ENVIRONMENT
 
 # shogo-probe: loads both game modules against the stub engine and reports
 # which engine calls the game makes during startup.
-add_executable(shogo-probe engine/probe_main.cpp)
+find_package(SDL3 CONFIG REQUIRED)
+add_executable(shogo-probe engine/probe_main.cpp engine/render_gpu.cpp)
 target_include_directories(shogo-probe PRIVATE "${CMAKE_SOURCE_DIR}")
-target_link_libraries(shogo-probe PRIVATE shogo_engine shogo_compat)
+target_link_libraries(shogo-probe PRIVATE shogo_engine shogo_compat SDL3::SDL3)
 add_dependencies(shogo-probe shogo_object shogo_cshell)
 
 # shogo: the game in a window.
 find_package(SDL3 CONFIG REQUIRED)
-add_executable(shogo engine/shogo_main.cpp engine/launcher.cpp engine/gpu_present.cpp)
+add_executable(shogo engine/shogo_main.cpp engine/launcher.cpp engine/gpu_present.cpp engine/render_gpu.cpp)
 target_include_directories(shogo PRIVATE "${CMAKE_SOURCE_DIR}")
 target_link_libraries(shogo PRIVATE shogo_engine shogo_compat SDL3::SDL3)
 target_compile_definitions(shogo PRIVATE SHOGO_RECOMP_VERSION="${PROJECT_VERSION}")
@@ -173,7 +174,7 @@ target_link_libraries(shogo-worldinfo PRIVATE shogo_engine)
 add_executable(shogo-modelview engine/modelview_main.cpp)
 target_link_libraries(shogo-modelview PRIVATE shogo_engine)
 
-add_executable(shogo-worldview engine/worldview_main.cpp)
+add_executable(shogo-worldview engine/worldview_main.cpp engine/render_gpu.cpp)
 target_link_libraries(shogo-worldview PRIVATE shogo_engine SDL3::SDL3)
 
 # shogo-music: renders music sections to a WAV file.

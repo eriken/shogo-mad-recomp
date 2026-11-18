@@ -3,9 +3,11 @@
 //   shogo-worldview WORLDS/01_AMBUSH.DAT                 window: WASD/arrows move, mouse looks,
 //                                                         Q/E down/up, Shift = fast, Esc quits
 //   shogo-worldview WORLDS/01_AMBUSH.DAT --screenshot out.png [--pos x y z] [--yaw deg] [--pitch deg]
+//   --gpu draws with the GPU backend instead of the software one.
 //
 // Run from the extracted game folder.
 #include "engine/image_write.h"
+#include "engine/render_gpu.h"
 #include "engine/render_world.h"
 
 #include <SDL3/SDL.h>
@@ -22,11 +24,12 @@ int main(int argc, char **argv)
 {
     const char *worldName = nullptr, *shot = nullptr;
     int width = 640, height = 480;
-    bool havePos = false;
+    bool havePos = false, gpu = false;
     Camera cam;
     float yawDeg = NAN, pitchDeg = NAN;
     for (int i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) shot = argv[++i];
+        else if (!strcmp(argv[i], "--gpu")) gpu = true;
         else if (!strcmp(argv[i], "--pos") && i + 3 < argc) {
             cam.pos = {strtof(argv[i + 1], nullptr), strtof(argv[i + 2], nullptr), strtof(argv[i + 3], nullptr)};
             havePos = true;
@@ -63,6 +66,11 @@ int main(int argc, char **argv)
         return 1;
     }
     WorldRenderer renderer;
+    if (gpu) {
+        auto backend = makeGpuBackend();
+        if (!backend) return 1;
+        renderer.setBackend(std::move(backend));
+    }
     renderer.load(*world, fs);
     auto t1 = std::chrono::steady_clock::now();
     const auto &st = renderer.stats();

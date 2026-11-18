@@ -8,6 +8,7 @@
 #include "engine/inno_setup.h"
 #include "engine/gpu_present.h"
 #include "engine/launcher.h"
+#include "engine/render_gpu.h"
 #include "engine/sound.h"
 
 #include <SDL3/SDL.h>
@@ -216,6 +217,12 @@ int main(int argc, char **argv)
         SDL_RenderTexture(renderer, texture, nullptr, nullptr);
         SDL_RenderPresent(renderer);
     };
+
+    // SHOGO_RENDERER=gpu: the GPU world renderer (in progress: no models or
+    // effects yet).
+    if (const char *r = getenv("SHOGO_RENDERER"); r && !strcmp(r, "gpu") && gpu.device()) {
+        if (auto backend = shogo::makeGpuBackend(gpu.device())) host.session.renderer.setBackend(std::move(backend));
+    }
 
     std::string err;
     if (!host.mountGameData(&err) || !host.loadServer(objectPath.c_str(), &err) ||

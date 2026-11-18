@@ -2,12 +2,13 @@
 // (real functions where implemented, logging stubs elsewhere), drives startup
 // and a number of headless frames, and reports which engine calls the game made.
 //
-// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
+// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
 //                    <object.lto.dylib> <cshell.dylib>
 // Run it from the extracted game folder.
 #include "engine/game_host.h"
 #include "engine/sound.h"
 #include "engine/image_write.h"
+#include "engine/render_gpu.h"
 #include "engine/movement.h"
 #include "engine/server.h"
 #include "engine/stub_support.h"
@@ -73,6 +74,7 @@ int main(int argc, char **argv)
     std::vector<Trigger> triggers;  // a "TRIGGER" message from the player to named objects
     std::vector<const char *> paths;
     std::vector<std::string> conVars;  // "+name value" pairs, set before the game starts
+    bool gpu = false;                   // draw the world with the GPU backend
     bool saveConfig = false;            // write autoexec.cfg at the end, as the game does at exit
     bool movies = false;               // play the intro movies (otherwise skipped, so key timings stay put)
     for (int i = 1; i < argc; ++i) {
@@ -86,6 +88,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--audio-out") && i + 1 < argc) audioOut = argv[++i];
         else if (!strcmp(argv[i], "--movies")) movies = true;
         else if (!strcmp(argv[i], "--save-config")) saveConfig = true;
+        else if (!strcmp(argv[i], "--gpu")) gpu = true;
         else if (!strcmp(argv[i], "--click") && i + 1 < argc) {
             int b = 0, at = 0;
             if (sscanf(argv[++i], "%i@%d", &b, &at) == 2) clicks.push_back({b, at});
@@ -116,6 +119,11 @@ int main(int argc, char **argv)
     if (!movies) conVars.insert(conVars.begin(), "DisableMovies \"1\"");
     shogo::GameHost host;
     host.commandLine = conVars;  // run after autoexec.cfg, as the game does
+    if (gpu) {
+        auto backend = shogo::makeGpuBackend();
+        if (!backend) return 1;
+        host.session.renderer.setBackend(std::move(backend));
+    }
     std::string err;
     if (!host.mountGameData(&err)) fail(err + "\n(run shogo-probe from the extracted game folder)");
     printf("Mounted %zu resource archive(s); CRES.DLL has %zu strings, SRES.DLL has %zu\n",
