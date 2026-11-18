@@ -45,6 +45,9 @@ target_compile_options(shogo_game_flags INTERFACE
     -fno-strict-aliasing
     -fdelayed-template-parsing  # VC6-era templates reference types declared later
     -ferror-limit=0
+    # Uninitialized locals read as zero, the same every run (the 1998 code
+    # has some; without this, unrelated changes shift what it plays out)
+    -ftrivial-auto-var-init=zero
     # The 1998 code is warning-heavy: silence warnings, but keep every
     # pointer<->integer truncation a hard error (this is a 64-bit build).
     -Wno-everything
@@ -176,6 +179,13 @@ target_link_libraries(shogo-modelview PRIVATE shogo_engine)
 
 add_executable(shogo-worldview engine/worldview_main.cpp engine/render_gpu.cpp)
 target_link_libraries(shogo-worldview PRIVATE shogo_engine SDL3::SDL3)
+
+# shogo-render-compare: the software and GPU backends on a synthetic scene
+# with every polygon feature; fails when they disagree, skips without a GPU.
+add_executable(shogo-render-compare engine/render_compare_main.cpp engine/render_gpu.cpp)
+target_link_libraries(shogo-render-compare PRIVATE shogo_engine SDL3::SDL3)
+add_test(NAME render-compare COMMAND shogo-render-compare)
+set_tests_properties(render-compare PROPERTIES SKIP_RETURN_CODE 77)
 
 # shogo-music: renders music sections to a WAV file.
 add_executable(shogo-music engine/music_main.cpp)

@@ -846,6 +846,14 @@ DRESULT renderCamera(HLOCALOBJ h)
     if (traceCamera && cameraFrames++ % 30 == 0)
         fprintf(stderr, "[camera] pos (%.0f %.0f %.0f) light scale %.2f %.2f %.2f, %zu polygons drawn\n", c.pos.x, c.pos.y,
                 c.pos.z, g_lightScale.x, g_lightScale.y, g_lightScale.z, g.renderer.stats().drawnPolys);
+    // Per frame: polygons from models and effects, and dynamic lights (for
+    // finding moments with effects on screen).
+    static const bool traceEffects = getenv("SHOGO_TRACE_EFFECTS") != nullptr;
+    if (traceEffects) {
+        static int frame = 0;
+        fprintf(stderr, "[effects] frame %d: %zu dynamic polygons, %zu lights\n", ++frame,
+                g.renderer.stats().dynamicPolys, gatherLights().size());
+    }
     static const bool traceLights = getenv("SHOGO_TRACE_LIGHTS") != nullptr;
     if (traceLights) {
         for (EngineObject *o : objects().all())

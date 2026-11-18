@@ -2,7 +2,7 @@
 // (real functions where implemented, logging stubs elsewhere), drives startup
 // and a number of headless frames, and reports which engine calls the game made.
 //
-// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
+// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu | --gpu-reference] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
 //                    <object.lto.dylib> <cshell.dylib>
 // Run it from the extracted game folder.
 #include "engine/game_host.h"
@@ -75,6 +75,7 @@ int main(int argc, char **argv)
     std::vector<const char *> paths;
     std::vector<std::string> conVars;  // "+name value" pairs, set before the game starts
     bool gpu = false;                   // draw the world with the GPU backend
+    bool gpuReference = false;          // software drawing, with a GPU device created as for --gpu
     bool saveConfig = false;            // write autoexec.cfg at the end, as the game does at exit
     bool movies = false;               // play the intro movies (otherwise skipped, so key timings stay put)
     for (int i = 1; i < argc; ++i) {
@@ -89,6 +90,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--movies")) movies = true;
         else if (!strcmp(argv[i], "--save-config")) saveConfig = true;
         else if (!strcmp(argv[i], "--gpu")) gpu = true;
+        else if (!strcmp(argv[i], "--gpu-reference")) gpuReference = true;
         else if (!strcmp(argv[i], "--click") && i + 1 < argc) {
             int b = 0, at = 0;
             if (sscanf(argv[++i], "%i@%d", &b, &at) == 2) clicks.push_back({b, at});
@@ -119,10 +121,14 @@ int main(int argc, char **argv)
     if (!movies) conVars.insert(conVars.begin(), "DisableMovies \"1\"");
     shogo::GameHost host;
     host.commandLine = conVars;  // run after autoexec.cfg, as the game does
-    if (gpu) {
+    // --gpu-reference: a software screenshot taken under the same conditions
+    // as --gpu (a GPU device exists), to compare the two backends.
+    std::unique_ptr<shogo::RenderBackend> gpuDevice;
+    if (gpu || gpuReference) {
         auto backend = shogo::makeGpuBackend();
         if (!backend) return 1;
-        host.session.renderer.setBackend(std::move(backend));
+        if (gpuReference) gpuDevice = std::move(backend);  // kept alive, not drawn with
+        else host.session.renderer.setBackend(std::move(backend));
     }
     std::string err;
     if (!host.mountGameData(&err)) fail(err + "\n(run shogo-probe from the extracted game folder)");
