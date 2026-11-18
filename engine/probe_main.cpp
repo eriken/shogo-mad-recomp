@@ -2,7 +2,7 @@
 // (real functions where implemented, logging stubs elsewhere), drives startup
 // and a number of headless frames, and reports which engine calls the game made.
 //
-// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu [--smooth] [--msaa N] [--gpu-scale S] | --gpu-reference] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
+// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu [--smooth] [--msaa N] [--gpu-scale S] | --gpu-reference] [--time] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
 //                    <object.lto.dylib> <cshell.dylib>
 // Run it from the extracted game folder.
 #include "engine/game_host.h"
@@ -19,6 +19,8 @@
 #include <signal.h>
 #include <unistd.h>
 
+#include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -79,6 +81,7 @@ int main(int argc, char **argv)
     bool gpuReference = false;          // software drawing, with a GPU device created as for --gpu
     shogo::GpuSettings gpuSettings;     // --smooth, --msaa N
     float gpuScale = 1;                 // --gpu-scale S: the GPU screen at S times the game's resolution
+    bool timing = false;                // --time: how long frames take (after the first 30)
     bool saveConfig = false;            // write autoexec.cfg at the end, as the game does at exit
     bool movies = false;               // play the intro movies (otherwise skipped, so key timings stay put)
     for (int i = 1; i < argc; ++i) {
@@ -95,6 +98,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--gpu")) gpu = true;
         else if (!strcmp(argv[i], "--gpu-reference")) gpuReference = true;
         else if (!strcmp(argv[i], "--smooth")) gpuSettings.smoothTextures = true;
+        else if (!strcmp(argv[i], "--time")) timing = true;
         else if (!strcmp(argv[i], "--msaa") && i + 1 < argc) gpuSettings.msaa = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--gpu-scale") && i + 1 < argc) gpuScale = float(atof(argv[++i]));
         else if (!strcmp(argv[i], "--click") && i + 1 < argc) {
@@ -162,6 +166,7 @@ int main(int argc, char **argv)
     if (!host.startClient(paths[1], 640, 480, &err)) fail("Client failed to start: " + err);
     printf("Client initialized\n");
 
+    std::vector<double> frameMs;
     for (int i = 0; i < frames && !host.quitRequested(); ++i) {
         for (const KeyPress &c : clicks)
             if (c.frame == i) {
@@ -185,7 +190,12 @@ int main(int argc, char **argv)
         }
         for (const MouseMove &m : mouse)
             if (i >= m.from && i < m.to) host.mouseMotion(m.dx, m.dy);
+        const auto frameStart = std::chrono::steady_clock::now();
         host.frame(1.0 / 30.0);
+        if (timing && i >= 30) {
+            const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
+            frameMs.push_back(ms);
+        }
         {
             // 1/30 s of sound per frame, as the window would queue it.
             int16_t buf[shogo::Mixer::kRate / 30 * 2];
@@ -211,6 +221,17 @@ int main(int argc, char **argv)
                 }
             printf("\n");
         }
+    }
+    if (timing && !frameMs.empty()) {
+        // The game frame as the window runs it (simulation, drawing and
+        // presenting); the GPU's own time shows where the next frame waits.
+        std::vector<double> sorted(frameMs);
+        std::sort(sorted.begin(), sorted.end());
+        double sum = 0;
+        for (double ms : frameMs) sum += ms;
+        printf("Frame time over %zu frames: mean %.2f ms, median %.2f, 95%% %.2f, worst %.2f\n", frameMs.size(),
+               sum / double(frameMs.size()), sorted[sorted.size() / 2], sorted[sorted.size() * 95 / 100],
+               sorted.back());
     }
     printf("Ran %d frame(s), %u presented%s\n", frames, host.client.framesPresented,
            host.quitRequested() ? " (game requested shutdown)" : "");

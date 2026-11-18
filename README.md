@@ -145,6 +145,27 @@ cd gamedata && ../build/shogo-probe +runworld "Worlds\02_Quarters" --frames 1700
 Keys are Windows VK codes; hold them (`--hold`) for a few frames, since the game polls its
 commands once a frame and a `--key` press is released within the same frame.
 
+### Checking the Metal renderer
+
+```sh
+# Screenshot every single-player level (and the main and options menus) with Metal and
+# with the software reference, and diff each pair; report in build/render-check/index.html
+tools/render_check.sh
+# A few levels, later in the level, with the launcher's smooth textures and 4x MSAA
+# (differences are then expected: for looking at, not passing)
+tools/render_check.sh --frames 400 --gpu-args "--smooth --msaa 4" 01_Ambush 19_Rendezvous
+# Compare any two screenshots; --diff marks the differences in red
+build/shogo-imgdiff a.png b.png --diff diff.png --blocks 8
+# Frame times (mean, median, 95th percentile, worst) from frame 30 on
+cd gamedata && ../build/shogo-probe --gpu --time +runworld "Worlds\01_Ambush" --frames 300 \
+    ../build/object.lto.dylib ../build/cshell.dylib
+```
+
+A scene passes when at most 0.5% of its 8x8 blocks differ in average colour by more than
+8 of 255: sampling one texel over averages out, a missing or misdrawn surface doesn't.
+`tools/render_check.known` allows more for named scenes, with the reason. Run with
+`MTL_DEBUG_LAYER=1` to add Metal's API validation.
+
 ## How the game source is built
 
 The pristine source in `third_party/` is never edited. At configure time
@@ -185,6 +206,7 @@ Layers, from least to most invasive:
 | `tools/update_patch.sh` | Regenerate `patches/shogo-native.patch` from edits in `build/gamesrc/` |
 | `tools/fix_forscope.py` | Fix VC6 for-loop variable scoping from Clang error output |
 | `tools/gen_engine_stubs.py` | Generate the stub engine from Clang's AST of the API headers |
+| `tools/render_check.sh` | Diff Metal against the software renderer on every level |
 
 ## Engine layout
 

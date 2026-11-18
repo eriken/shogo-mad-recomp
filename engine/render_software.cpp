@@ -37,6 +37,7 @@ private:
     RenderFrame m_frame;
     std::vector<float> m_depth;  // 1/z per pixel
     std::vector<ViewVert> m_in, m_clipped;
+    std::vector<const DrawPoly *> m_order;
 };
 
 void SoftwareBackend::screenAdd(const float rgb[3])
@@ -84,7 +85,15 @@ void SoftwareBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &p
     };
     std::vector<ScreenVert> sv;
 
-    for (const DrawPoly &poly : polys) {
+    // Opaque polygons first, then the blended ones (world translucency
+    // included) in list order: blending doesn't write depth, so an opaque
+    // polygon drawn later would cover a translucent one in front of it.
+    m_order.clear();
+    for (int blended = 0; blended < 2; ++blended)
+        for (const DrawPoly &poly : polys)
+            if ((poly.blend != Opaque || (poly.flags & kSurfTranslucent)) == (blended != 0)) m_order.push_back(&poly);
+    for (const DrawPoly *pp : m_order) {
+        const DrawPoly &poly = *pp;
         if (!sky && (poly.flags & kSurfSky)) continue;  // sky portals show the sky behind
 
         // Sphere vs. view frustum.

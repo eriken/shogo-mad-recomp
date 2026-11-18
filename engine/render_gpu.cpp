@@ -228,7 +228,6 @@ private:
     SDL_GPUTexture *makeSampled(const uint32_t *px, int w, int h);
     void buildAtlas();
     Geometry build(const std::vector<DrawPoly> &polys, const DrawPass &pass);
-    SDL_GPUBuffer *upload(const std::vector<GpuVert> &verts);
     SDL_GPUTexture *makeTexture(SDL_GPUTextureFormat format, Uint32 usage, int w, int h, int levels = 1,
                                 SDL_GPUSampleCount samples = SDL_GPU_SAMPLECOUNT_1);
     void uploadTexture(SDL_GPUTexture *tex, const void *data, int w, int h, int bytesPerTexel, bool mipmaps = false);
@@ -659,7 +658,22 @@ Geometry GpuBackend::build(const std::vector<DrawPoly> &polys, const DrawPass &p
     opaque.insert(opaque.end(), blended.begin(), blended.end());
 
     Geometry geo;
-    std::vector<GpuVert> verts;
+    size_t total = 0;
+    for (const Item &it : opaque) total += (it.poly->verts.size() - 2) * 3;
+    if (total == 0) return geo;
+    // Written straight into the upload buffer.
+    const Uint32 bytes = Uint32(total * sizeof(GpuVert));
+    SDL_GPUBufferCreateInfo bci{SDL_GPU_BUFFERUSAGE_VERTEX, bytes, 0};
+    SDL_GPUTransferBufferCreateInfo tci{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, bytes, 0};
+    SDL_GPUBuffer *buffer = SDL_CreateGPUBuffer(m_device, &bci);
+    SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(m_device, &tci);
+    GpuVert *out = buffer && tb ? static_cast<GpuVert *>(SDL_MapGPUTransferBuffer(m_device, tb, false)) : nullptr;
+    if (!out) {
+        if (buffer) SDL_ReleaseGPUBuffer(m_device, buffer);
+        if (tb) SDL_ReleaseGPUTransferBuffer(m_device, tb);
+        return geo;
+    }
+    Uint32 nv = 0;
     for (const Item &it : opaque) {
         const DrawPoly *p = it.poly;
         const int tex = p->tex >= 0 && size_t(p->tex) < res.textures.size() ? p->tex : -1;
@@ -686,48 +700,30 @@ Geometry GpuBackend::build(const std::vector<DrawPoly> &polys, const DrawPass &p
         const float nd = n.x * v0.x + n.y * v0.y + n.z * v0.z;
         const int pipe = pipelineIndex(it.blend, p->noZ);
         if (geo.batches.empty() || geo.batches.back().tex != texture || geo.batches.back().pipeline != pipe)
-            geo.batches.push_back({texture, pipe, Uint32(verts.size()), 0});
+            geo.batches.push_back({texture, pipe, nv, 0});
         auto vert = [&](const DrawVert &v) {
-            verts.push_back({v.p.x, v.p.y, v.p.z, v.u, v.v, v.r, v.g, v.b, v.lu, v.lv, float(lm.x), float(lm.y),
+            out[nv++] = GpuVert{v.p.x, v.p.y, v.p.z, v.u, v.v, v.r, v.g, v.b, v.lu, v.lv, float(lm.x), float(lm.y),
                              float(lm.w), float(lm.h), tw, th, lit, p->sphereCenter.x, p->sphereCenter.y,
-                             p->sphereCenter.z, p->sphereRadius, n.x, n.y, n.z, nd, alpha, float(flags)});
+                             p->sphereCenter.z, p->sphereRadius, n.x, n.y, n.z, nd, alpha, float(flags)};
         };
         for (size_t k = 1; k + 1 < p->verts.size(); ++k) {
             vert(p->verts[0]);
             vert(p->verts[k]);
             vert(p->verts[k + 1]);
         }
-        geo.batches.back().count = Uint32(verts.size()) - geo.batches.back().first;
+        geo.batches.back().count = nv - geo.batches.back().first;
         ++geo.polys;
         if (lm.w > 0) ++geo.lightmapped;
     }
-    geo.buffer = verts.empty() ? nullptr : upload(verts);
-    return geo;
-}
-
-SDL_GPUBuffer *GpuBackend::upload(const std::vector<GpuVert> &verts)
-{
-    const Uint32 bytes = Uint32(verts.size() * sizeof(GpuVert));
-    SDL_GPUBufferCreateInfo bi{SDL_GPU_BUFFERUSAGE_VERTEX, bytes, 0};
-    SDL_GPUBuffer *buf = SDL_CreateGPUBuffer(m_device, &bi);
-    SDL_GPUTransferBufferCreateInfo ti{SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD, bytes, 0};
-    SDL_GPUTransferBuffer *tb = SDL_CreateGPUTransferBuffer(m_device, &ti);
-    if (!buf || !tb) {
-        if (buf) SDL_ReleaseGPUBuffer(m_device, buf);
-        if (tb) SDL_ReleaseGPUTransferBuffer(m_device, tb);
-        return nullptr;
-    }
-    if (void *p = SDL_MapGPUTransferBuffer(m_device, tb, false)) {
-        memcpy(p, verts.data(), bytes);
-        SDL_UnmapGPUTransferBuffer(m_device, tb);
-    }
+    SDL_UnmapGPUTransferBuffer(m_device, tb);
     SDL_GPUCopyPass *copy = SDL_BeginGPUCopyPass(m_cmd);
     SDL_GPUTransferBufferLocation src{tb, 0};
-    SDL_GPUBufferRegion dst{buf, 0, bytes};
+    SDL_GPUBufferRegion dst{buffer, 0, bytes};
     SDL_UploadToGPUBuffer(copy, &src, &dst, false);
     SDL_EndGPUCopyPass(copy);
-    SDL_ReleaseGPUTransferBuffer(m_device, tb);
-    return buf;
+    SDL_ReleaseGPUTransferBuffer(m_device, tb);  // freed once the GPU is done with it
+    geo.buffer = buffer;
+    return geo;
 }
 
 void GpuBackend::begin(Surface &dst, const RenderFrame &frame)

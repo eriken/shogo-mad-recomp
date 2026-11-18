@@ -724,6 +724,7 @@ void submitModels(GameSession &g)
                 if (hide) continue;
             }
             WorldRenderer::DrawPoly dp;
+            dp.verts = g.renderer.takeVerts();
             dp.tex = tex;
             if (o->color[3] < 0.99f) {
                 dp.blend = WorldRenderer::Alpha;
@@ -799,6 +800,7 @@ void submitPolyGrid(GameSession &g, const EngineObject *o)
             const size_t tris[2][3] = {{a, b, d}, {a, d, c}};
             for (const auto &t : tris) {
                 WorldRenderer::DrawPoly dp;
+                dp.verts = g.renderer.takeVerts();
                 dp.tex = tex;
                 dp.alpha = alpha;
                 dp.blend = alpha < 0.999f ? WorldRenderer::Alpha : WorldRenderer::Opaque;

@@ -187,6 +187,10 @@ target_link_libraries(shogo-render-compare PRIVATE shogo_engine SDL3::SDL3)
 add_test(NAME render-compare COMMAND shogo-render-compare)
 set_tests_properties(render-compare PROPERTIES SKIP_RETURN_CODE 77)
 
+# shogo-imgdiff: compares two screenshots (tools/render_check.sh uses it).
+add_executable(shogo-imgdiff engine/imgdiff_main.cpp)
+target_link_libraries(shogo-imgdiff PRIVATE shogo_engine)
+
 # shogo-music: renders music sections to a WAV file.
 add_executable(shogo-music engine/music_main.cpp)
 target_link_libraries(shogo-music PRIVATE shogo_engine)

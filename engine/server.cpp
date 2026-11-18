@@ -940,9 +940,14 @@ void Server::install(ServerDE *d, ClassDef **defs, int n)
 ClassDef *Server::findClass(const char *name) const
 {
     if (!name) return nullptr;
-    for (ClassDef *c : classes)
-        if (strcasecmp(c->m_ClassName, name) == 0) return c;
-    return nullptr;
+    // By lower-case name (the game looks classes up every frame).
+    if (m_classesIndexed != classes.size()) {
+        m_classesIndexed = classes.size();
+        m_classByName.clear();
+        for (ClassDef *c : classes) m_classByName.emplace(lower(c->m_ClassName), c);
+    }
+    auto it = m_classByName.find(lower(name));
+    return it == m_classByName.end() ? nullptr : it->second;
 }
 
 DDWORD Server::engineMessage(EngineObject *o, DDWORD msg, void *data, float fdata)

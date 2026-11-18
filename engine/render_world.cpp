@@ -85,9 +85,26 @@ RenderFrame WorldRenderer::frame(const Camera &cam)
 
 void WorldRenderer::clearDynamic()
 {
-    m_dynamic.clear();
-    m_blended.clear();
-    m_close.clear();
+    recycle(m_dynamic);
+    recycle(m_blended);
+    recycle(m_close);
+}
+
+void WorldRenderer::recycle(std::vector<DrawPoly> &list)
+{
+    for (DrawPoly &p : list) {
+        p.verts.clear();
+        m_spareVerts.push_back(std::move(p.verts));
+    }
+    list.clear();
+}
+
+std::vector<WorldRenderer::DrawVert> WorldRenderer::takeVerts()
+{
+    if (m_spareVerts.empty()) return {};
+    std::vector<DrawVert> v = std::move(m_spareVerts.back());
+    m_spareVerts.pop_back();
+    return v;
 }
 
 int WorldRenderer::textureIndex(const std::string &name, const ResourceFS &fs)
@@ -316,7 +333,7 @@ void WorldRenderer::render(Surface &dst, const Camera &cam)
     std::vector<const ModelPlacement *> placed(m_models.size(), nullptr);
     for (const ModelPlacement &p : m_placements)
         if (p.model > 0 && size_t(p.model) < m_models.size()) placed[size_t(p.model)] = &p;
-    m_moved.clear();
+    recycle(m_moved);
     for (size_t i = 1; i < m_models.size(); ++i) {
         const ModelPlacement *p = placed[i];
         if (!p) {
@@ -336,7 +353,9 @@ void WorldRenderer::render(Surface &dst, const Camera &cam)
             continue;
         }
         for (const DrawPoly &src : m_models[i]) {
-            DrawPoly dp = src;
+            DrawPoly dp;
+            dp.verts = takeVerts();
+            dp = src;  // into the reused list's room
             for (DrawVert &v : dp.verts) {
                 Vec3 r = rotate(sub(v.p, p->basePos));
                 v.p = {r.x + p->pos.x, r.y + p->pos.y, r.z + p->pos.z};

@@ -63,6 +63,9 @@ public:
     // render() and then dropped. "Really close" ones (the player's view
     // weapon) are drawn last, over everything. UVs are in texels.
     void addDynamic(DrawPoly poly, bool reallyClose);
+    // An empty vertex list for a polygon to add, with room from earlier frames
+    // (saves an allocation per polygon per frame).
+    std::vector<DrawVert> takeVerts();
     // Draws just the dynamic polygons queued since the last render, over what
     // dst already shows, with a fresh depth buffer (RenderObjects).
     void renderDynamic(Surface &dst, const Camera &cam);
@@ -92,6 +95,8 @@ private:
     std::vector<std::vector<DrawPoly>> m_models;  // world models 1.., by index (sky ones empty)
     std::vector<ModelPlacement> m_placements;
     std::vector<DrawPoly> m_moved;                // this frame's transformed copies
+    std::vector<std::vector<DrawVert>> m_spareVerts;  // emptied lists from last frame's polygons
+    void recycle(std::vector<DrawPoly> &list);
     float m_lightScale[3] = {1, 1, 1};
     float m_screenAdd[3] = {0, 0, 0};
     Stats m_stats;

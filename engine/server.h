@@ -16,6 +16,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace shogo {
@@ -49,6 +50,8 @@ public:
     std::set<std::string> gameVarNames;  // set through SetGameConVar (saved with SAVEOBJECTS_SAVEGAMECONSOLE)
 
     std::vector<ClassDef *> classes;
+    mutable std::unordered_map<std::string, ClassDef *> m_classByName;  // findClass's index (first of a name)
+    mutable size_t m_classesIndexed = 0;
     std::unique_ptr<WorldData> world;
     std::vector<CollisionModel> collisionModels;  // one per BSP model
     EngineObject *worldObject = nullptr;          // GetWorldObject
