@@ -1,11 +1,21 @@
-// shogo: the game in a window (SDL3). Run from the extracted game folder, or pass
-// --data <dir>. Modules default to object.lto.dylib / cshell.dylib next to the executable.
+// shogo: the app. Started without a game folder (from Finder, Shogo.app) it
+// opens the launcher, which imports the game data and starts the game as
+// `shogo --play` (data from Application Support). Run from a game folder, or
+// with --data <dir> or +console variables, it plays straight away (testing).
+// The game modules (object.lto.dylib, cshell.dylib) sit next to the executable.
 #include "engine/game_host.h"
+#include "engine/game_import.h"
+#include "engine/inno_setup.h"
+#include "engine/launcher.h"
 #include "engine/sound.h"
 
 #include <SDL3/SDL.h>
 
+#include <mach-o/dyld.h>
 #include <unistd.h>
+
+#include <climits>
+#include <cstdlib>
 
 #include <cstdio>
 #include <cstring>
@@ -64,20 +74,70 @@ int vkFromSDL(SDL_Keycode k)
     }
 }
 
-std::string exeDir(const char *argv0)
+// This program's own path (inside Shogo.app: Contents/MacOS/shogo).
+std::string exePath(const char *argv0)
 {
-    const char *base = SDL_GetBasePath();
-    if (base) return base;
-    std::string s(argv0);
-    size_t slash = s.rfind('/');
-    return slash == std::string::npos ? "./" : s.substr(0, slash + 1);
+    char buf[PATH_MAX], real[PATH_MAX];
+    uint32_t size = sizeof buf;
+    if (_NSGetExecutablePath(buf, &size) == 0 && realpath(buf, real)) return real;
+    return argv0;
 }
 
 }  // namespace
 
 int main(int argc, char **argv)
 {
-    std::string dir = exeDir(argv[0]);
+    // --installer-list <setup.exe>: what GOG's installer holds (testing).
+    if (argc == 3 && !strcmp(argv[1], "--installer-list")) {
+        shogo::InnoSetup setup;
+        std::string err;
+        if (!setup.open(argv[2], &err)) {
+            fprintf(stderr, "%s\n", err.c_str());
+            return 1;
+        }
+        std::vector<shogo::GogFile> files = shogo::gogFiles(setup, &err);
+        printf("%s: %zu entries, %zu GOG files%s%s\n", setup.appName().c_str(), setup.files().size(), files.size(),
+               err.empty() ? "" : ": ", err.c_str());
+        size_t packed = 0, filtered = 0;
+        for (const shogo::InnoSetup::Data &d : setup.data()) packed += d.compressed, filtered += d.callFilter;
+        printf("compression %d; %zu of %zu chunks compressed, %zu filtered\n", setup.compression(), packed,
+               setup.data().size(), filtered);
+        for (const shogo::GogFile &f : files)
+            printf("%10llu %2zu %-12s %s%s\n", (unsigned long long)f.size, f.parts.size(), f.languages.c_str(), f.path.c_str(),
+                   f.winver.empty() ? "" : (" [" + f.winver + "]").c_str());
+        return 0;
+    }
+    // --import <setup.exe> <dir>: the launcher's import, from the command line.
+    if (argc == 4 && !strcmp(argv[1], "--import")) {
+        std::string err;
+        int last = -1;
+        bool ok = shogo::importFromGogInstaller(argv[2], argv[3], [&](float p, const std::string &what) {
+            int pct = int(p * 100);
+            if (pct / 10 != last / 10) printf("import: %3d%% %s\n", pct, what.c_str()), fflush(stdout), last = pct;
+        }, &err);
+        printf("import: %s\n", ok ? "done" : ("failed: " + err).c_str());
+        return ok ? 0 : 1;
+    }
+    setvbuf(stdout, nullptr, _IOLBF, 0);  // logs survive the game being killed
+    const std::string exe = exePath(argv[0]);
+    const std::string dir = exe.substr(0, exe.rfind('/') + 1);
+    // No game folder given and none here: the launcher.
+    bool play = access("SHOGO.REZ", F_OK) == 0, dataGiven = false;
+    for (int i = 1; i < argc; ++i)
+        play |= argv[i][0] == '+' || !strcmp(argv[i], "--play") || !strcmp(argv[i], "--data"),
+            dataGiven |= !strcmp(argv[i], "--data");
+    if (!play) return shogo::runLauncher(exe);
+    bool fromLauncher = false;
+    for (int i = 1; i < argc; ++i) fromLauncher |= !strcmp(argv[i], "--play");
+    if (fromLauncher && !dataGiven) {
+        std::string data = shogo::defaultGameDataDir();
+        if (!shogo::hasGameData(data) || chdir(data.c_str()) != 0) {
+            std::string msg = "No Shogo game data in " + data + ". Open Shogo and import it from GOG's installer.";
+            fprintf(stderr, "%s\n", msg.c_str());
+            SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Shogo", msg.c_str(), nullptr);
+            return 1;
+        }
+    }
     std::string objectPath = dir + "object.lto.dylib", cshellPath = dir + "cshell.dylib";
     std::vector<std::string> conVars;  // "+name value": console variables, e.g. +runworld Worlds\01_Ambush
     for (int i = 1; i < argc; ++i) {
@@ -104,6 +164,10 @@ int main(int argc, char **argv)
         return 1;
     }
     SDL_SetRenderVSync(renderer, 1);
+    if (SDL_Surface *icon = shogo::loadDockIcon(".")) {  // GOG's icon, if the data has it
+        SDL_SetWindowIcon(window, icon);
+        SDL_DestroySurface(icon);
+    }
 
     // Sound: the mixer runs on this thread; each frame tops the device queue up
     // to about 60 ms ahead.

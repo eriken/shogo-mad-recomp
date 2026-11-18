@@ -5,10 +5,25 @@ a new LithTech 1.0–compatible engine, running Monolith's own released game cod
 
 This repository contains **only our own code**. You supply two things yourself:
 
-1. **The game data** from your own copy of the game (the GOG installer works).
-2. **Monolith's Shogo v2.2 game source** (`shogsrc22.zip`). Its EULA allows owners of
+1. **The game data** from your own copy of the game: GOG's installer
+   (`setup_shogo_-_mobile_armor_division_*.exe`). The app imports it; nothing is installed or run.
+2. **Monolith's Shogo v2.2 game source** (`shogsrc22.zip`), to build. Its EULA allows owners of
    Shogo to use and modify it, but forbids redistributing it, so it is never committed here
-   (see `.gitignore`).
+   (see `.gitignore`). Players of a built app don't need it: the app carries our compiled
+   build of the game code, which the EULA treats as a "variation" (free, only works with the
+   full game, and says on its opening screen that Monolith didn't make it).
+
+## Playing
+
+Open `build/Shogo.app`. The launcher's **Import from GOG installer...** asks for GOG's
+Shogo installer (or drop it on the window): it reads the installer directly, copies the
+English game into `~/Library/Application Support/Shogo Recomp/Game` (about 460 MB, a few
+seconds) and checks every file against the installer's checksums. **Play** then starts the
+game; the launcher stays open while it runs. **Intro movies** (On/Off, remembered in
+`launcher.cfg` next to the game folder) skips the Monolith logo and intro movie before the menu.
+Once the game is imported, the launcher shows the game's splash screen and the Dock shows
+GOG's Shogo icon; both are read from your imported data at runtime, never shipped in the app. Importing again replaces the game files but
+keeps saves and your key bindings. Steam's version isn't supported yet.
 
 ## Status
 
@@ -34,6 +49,7 @@ This repository contains **only our own code**. You supply two things yourself:
 | Engine: music | The game's interactive music (Microsoft IMA data in `Music\`, [format notes](docs/music-format.md)): our own DLS level 1 synth (looped samples, volume envelopes, LFO, pan) and a section player (the style's pattern for the section's groove level, looped, a random variation per part on each pass, the section's band); the game's playlists for silence, ambient, cruising and hard driving, with their transition sections, switching now, at the next measure or at the end of the section. Its own volume (the music slider) |
 | Engine: movies | Smacker (`.SMK`) movies for the startup logo and intro: our own decoder (palette updates, mono/full/skip/fill blocks, Huffman-coded DPCM sound), full screen and paced by the game clock, interlaced movies shown with their blank lines like the original player, the soundtrack streamed through the mixer; Escape skips. `+DisableMovies 1` skips them |
 | Engine: saves | Quick save/load (F6/F7), the save and load menus, the level-start reload save, and level changes that carry the player over (`SaveObjects`/`RestoreObjects` in our own file format, object references remapped on load, inter-object links, client references so the player is put back into its saved object, the game console's per-level settings). Shogo's original `.sav` files aren't read; portal states aren't saved |
+| App | `Shogo.app`: a launcher that imports the game from GOG's installer (our own Inno Setup 5.5.7 and GOG Galaxy reader, [format notes](docs/installer-format.md)) and starts the game; SDL3 bundled inside |
 | Engine: not yet | Networking; CD audio (the three levels that ask for a CD track have no music) |
 | Engine: everything else | Logging stubs (every `ClientDE`/`ServerDE` entry point), generated from the API headers |
 
@@ -55,21 +71,23 @@ lightmaps (vertex light instead), world-model movement or world light on models 
 ## Setup
 
 ```bash
-# 1. Game data: extract your GOG installer (needs innoextract: brew install innoextract)
-mkdir gamedata && innoextract -s -d gamedata setup_shogo_-_mobile_armor_division_*.exe
-
-# 2. Game source: download shogsrc22.zip (ModDB, "Shogo Mobile Armor Division Source Code",
+# 1. Game source: download shogsrc22.zip (ModDB, "Shogo Mobile Armor Division Source Code",
 #    MD5 2c13c09931bc803f3af6e6782ec2df80), then unpack its InstallShield 3 archive
 #    without running the 1999 installer:
 mkdir -p third_party/shogsrc22/installer
 unzip shogo_sourcecode22.zip -d third_party/shogsrc22/installer
 python3 -I tools/is3extract.py third_party/shogsrc22/installer/data.z third_party/shogsrc22/source
 
-# 3. Build (needs SDL3: brew install sdl3)
+# 2. Build (needs SDL3: brew install sdl3). Makes build/Shogo.app and the tools below.
 cmake -S . -B build
 cmake --build build -j
 
-# 4. Play (as far as it goes): opens a window at the main menu
+# 3. Game data for development: the launcher's import, into gamedata/
+#    (the tests and examples below run there; a copy of the installer next to
+#    CMakeLists.txt also enables the installer tests)
+./build/shogo --import setup_shogo_-_mobile_armor_division_*.exe gamedata
+
+# 4. Play: open build/Shogo.app, or start straight from a game folder
 cd gamedata && ../build/shogo
 
 # Fly through a level (WASD + mouse, Q/E down/up, Shift fast), or take a screenshot
@@ -196,6 +214,11 @@ Layers, from least to most invasive:
 | `engine/world_dat.*` | `.DAT` world reader (objects, BSPs, world models, lightmaps) |
 | `engine/smacker.*` | Smacker movie decoder (video and DPCM audio) |
 | `engine/movie.*` | Movie playback for `StartVideo`/`UpdateVideo`: pacing, full-screen drawing, the soundtrack |
+| `engine/inno_setup.*` | Reads GOG's Inno Setup installer: offsets, header, file and data entries, LZMA (macOS's liblzma), GOG Galaxy's split, zlib-packed files |
+| `engine/game_import.*` | Imports the game from the installer into Application Support; checks a folder holds a finished import |
+| `engine/launcher.*` | The launcher window (import, Play, intro movies, the licence notice; splash and Dock icon from the imported data) |
+| `engine/image_read*` | Decodes PNG/ICO through ImageIO (the Dock icon) |
+| `cmake/make_app.cmake` | Assembles `Shogo.app` (game modules, SDL3, Info.plist, ad-hoc signature) |
 | `engine/riff.h` | RIFF chunk walking for the music formats |
 | `engine/dls.*` | DLS level 1 instrument banks |
 | `engine/music.*` | IMA styles and sections, the DLS synth, the sequencer and playlists, the client's music functions |

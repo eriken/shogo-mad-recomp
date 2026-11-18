@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ShogoNative LANGUAGES C CXX)
+project(ShogoNative VERSION 0.1.0 LANGUAGES C CXX)
 
 # Monolith's Shogo v2.2 game source (shogsrc22.zip). Not part of this repository:
 # its EULA forbids redistribution, so each user supplies their own copy.
@@ -117,7 +117,7 @@ add_custom_command(OUTPUT "${SHOGO_STUBS_CPP}"
 # The engine proper (grows as stubs are replaced with real implementations).
 add_library(shogo_engine STATIC
     engine/rez_file.cpp engine/pe_resources.cpp engine/strings.cpp
-    engine/surfaces.cpp engine/fonts_coretext.cpp engine/image_write_imageio.cpp engine/client_api.cpp engine/game_host.cpp
+    engine/surfaces.cpp engine/fonts_coretext.cpp engine/image_write_imageio.cpp engine/image_read_imageio.cpp engine/client_api.cpp engine/game_host.cpp
     engine/world_dat.cpp engine/dtx.cpp engine/render_world.cpp
     engine/math3d.cpp engine/api_common.cpp engine/messages.cpp engine/objects.cpp engine/server.cpp engine/savegame.cpp engine/client_game.cpp engine/interfaces.cpp engine/input.cpp engine/collision.cpp engine/movement.cpp
     engine/model.cpp
@@ -125,16 +125,20 @@ add_library(shogo_engine STATIC
     engine/sound.cpp
     engine/smacker.cpp engine/movie.cpp
     engine/dls.cpp engine/music.cpp
+    engine/inno_setup.cpp engine/game_import.cpp
     engine/stub_support.cpp "${SHOGO_STUBS_CPP}")
 target_include_directories(shogo_engine PUBLIC "${CMAKE_SOURCE_DIR}")
 target_link_libraries(shogo_engine PUBLIC shogo_game_flags
-    "-framework CoreFoundation" "-framework CoreGraphics" "-framework CoreText" "-framework ImageIO")
+    "-framework CoreFoundation" "-framework CoreGraphics" "-framework CoreText" "-framework ImageIO"
+    lzma z)
 
 enable_testing()
 add_executable(shogo-engine-tests engine/tests/engine_tests.cpp)
 target_link_libraries(shogo-engine-tests PRIVATE shogo_engine)
 add_test(NAME engine-tests COMMAND shogo-engine-tests)
-set_tests_properties(engine-tests PROPERTIES ENVIRONMENT "SHOGO_DATA=${CMAKE_SOURCE_DIR}/gamedata")
+file(GLOB SHOGO_TEST_INSTALLER "${CMAKE_SOURCE_DIR}/setup_shogo_*.exe")
+set_tests_properties(engine-tests PROPERTIES ENVIRONMENT
+    "SHOGO_DATA=${CMAKE_SOURCE_DIR}/gamedata;SHOGO_INSTALLER=${SHOGO_TEST_INSTALLER}")
 
 # shogo-probe: loads both game modules against the stub engine and reports
 # which engine calls the game makes during startup.
@@ -145,10 +149,21 @@ add_dependencies(shogo-probe shogo_object shogo_cshell)
 
 # shogo: the game in a window.
 find_package(SDL3 CONFIG REQUIRED)
-add_executable(shogo engine/shogo_main.cpp)
+add_executable(shogo engine/shogo_main.cpp engine/launcher.cpp)
 target_include_directories(shogo PRIVATE "${CMAKE_SOURCE_DIR}")
 target_link_libraries(shogo PRIVATE shogo_engine shogo_compat SDL3::SDL3)
+target_compile_definitions(shogo PRIVATE SHOGO_RECOMP_VERSION="${PROJECT_VERSION}")
 add_dependencies(shogo shogo_object shogo_cshell)
+
+# Shogo.app: the launcher and game, with the game modules and SDL3 inside.
+add_custom_target(shogo-app ALL
+    COMMAND "${CMAKE_COMMAND}" -DAPP=${CMAKE_BINARY_DIR}/Shogo.app -DEXE=$<TARGET_FILE:shogo>
+            -DOBJECT=$<TARGET_FILE:shogo_object> -DCSHELL=$<TARGET_FILE:shogo_cshell>
+            -DSDL=$<TARGET_FILE:SDL3::SDL3> -DVERSION=${PROJECT_VERSION}
+            -P "${CMAKE_SOURCE_DIR}/cmake/make_app.cmake"
+    DEPENDS shogo shogo_object shogo_cshell "${CMAKE_SOURCE_DIR}/cmake/make_app.cmake"
+    COMMENT "Assembling Shogo.app"
+    VERBATIM)
 
 # shogo-worldinfo: parses every world and its textures (format check).
 add_executable(shogo-worldinfo engine/worldinfo_main.cpp)

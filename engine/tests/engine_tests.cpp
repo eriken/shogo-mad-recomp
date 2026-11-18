@@ -5,6 +5,9 @@
 #include "engine/strings.h"
 #include "engine/surfaces.h"
 #include "engine/fonts.h"
+#include "engine/game_import.h"
+#include "engine/image_read.h"
+#include "engine/inno_setup.h"
 #include "engine/dtx.h"
 #include "engine/render_world.h"
 #include "engine/world_dat.h"
@@ -1009,6 +1012,65 @@ static void testMessages()
     delete m;
 }
 
+static std::vector<uint8_t> readFile(const std::string &path)
+{
+    std::vector<uint8_t> out;
+    if (FILE *f = fopen(path.c_str(), "rb")) {
+        uint8_t buf[4096];
+        for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0;) out.insert(out.end(), buf, buf + n);
+        fclose(f);
+    }
+    return out;
+}
+
+// GOG's installer (SHOGO_INSTALLER): the file list, a file's parts, and the
+// filtered executables (their SHA-1 is checked after the filter is undone).
+static void testInstaller(const std::string &installer, const char *gameData)
+{
+    shogo::InnoSetup setup;
+    std::string err;
+    CHECK(setup.open(installer, &err));
+    if (!err.empty()) printf("  %s\n", err.c_str());
+    CHECK(setup.appName() == "Shogo - Mobile Armor Division");
+    std::vector<shogo::GogFile> files = shogo::gogFiles(setup, &err);
+    CHECK(files.size() > 300);
+    const shogo::GogFile *rez = nullptr, *autoexec = nullptr;
+    for (const shogo::GogFile &f : files) {
+        if (f.path == "SHOGO.REZ") rez = &f;
+        if (f.path == "__support/app/autoexec.cfg") autoexec = &f;
+    }
+    CHECK(rez && rez->parts.size() == 24 && rez->size > 200u * 1024 * 1024);
+    CHECK(autoexec != nullptr);
+    int filtered = 0;
+    for (uint32_t i = 0; i < setup.data().size(); ++i)
+        if (setup.data()[i].callFilter) {
+            ++filtered;
+            CHECK(setup.read(i, [](const uint8_t *, size_t) { return true; }, &err));
+        }
+    CHECK(filtered > 0);
+    if (autoexec && gameData) {
+        std::string out = std::string(getenv("TMPDIR") ? getenv("TMPDIR") : "/tmp/") + "/shogo-test-autoexec.cfg";
+        CHECK(shogo::extractGogFile(setup, *autoexec, out, nullptr, &err));
+        // gamedata/ from innoextract keeps it under __support/app; our import copies it up.
+        std::vector<uint8_t> a = readFile(out), b = readFile(std::string(gameData) + "/__support/app/autoexec.cfg");
+        if (b.empty()) b = readFile(std::string(gameData) + "/autoexec.cfg");
+        CHECK(!a.empty() && a == b);
+        remove(out.c_str());
+    }
+    // GOG's icon (the Dock icon) decodes at its largest size, with alpha.
+    if (gameData) {
+        std::vector<uint8_t> ico = readFile(std::string(gameData) + "/goggame-1207658659.ico");
+        int w = 0, h = 0;
+        std::vector<uint8_t> rgba;
+        CHECK(!ico.empty() && shogo::decodeImageRGBA(ico, w, h, rgba) && w == 256 && h == 256);
+        CHECK(!rgba.empty() && rgba[3] == 0 && rgba[(128 * 256 + 128) * 4 + 3] == 255);  // round: clear corner, solid centre
+    }
+    // Something that isn't an installer is refused with a reason.
+    shogo::InnoSetup notOne;
+    err.clear();
+    CHECK(!notOne.open(gameData ? std::string(gameData) + "/console.pcx" : "/etc/hosts", &err) && !err.empty());
+}
+
 int main()
 {
     testFormatMessage();
@@ -1031,6 +1093,12 @@ int main()
         testGameData(dir);
     } else {
         printf("SHOGO_DATA not set: skipping game data tests\n");
+    }
+    if (const char *installer = getenv("SHOGO_INSTALLER"); installer && *installer) {
+        printf("Installer tests using %s\n", installer);
+        testInstaller(installer, getenv("SHOGO_DATA"));
+    } else {
+        printf("SHOGO_INSTALLER not set: skipping installer tests\n");
     }
     printf(g_failures ? "%d check(s) FAILED\n" : "All checks passed\n", g_failures);
     return g_failures ? 1 : 0;
