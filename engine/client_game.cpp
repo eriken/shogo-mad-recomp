@@ -585,6 +585,11 @@ DRESULT renderCamera(HLOCALOBJ h)
     g.renderer.setLightScale(g_lightScale.x, g_lightScale.y, g_lightScale.z);
     g.renderer.setScreenAdd(cam->lightAdd.x, cam->lightAdd.y, cam->lightAdd.z);
     g.renderer.render(*g.ctx->screen, c);
+    static const bool traceCamera = getenv("SHOGO_TRACE_CAMERA") != nullptr;
+    static int cameraFrames = 0;
+    if (traceCamera && cameraFrames++ % 30 == 0)
+        fprintf(stderr, "[camera] pos (%.0f %.0f %.0f) light scale %.2f %.2f %.2f, %zu polygons drawn\n", c.pos.x, c.pos.y,
+                c.pos.z, g_lightScale.x, g_lightScale.y, g_lightScale.z, g.renderer.stats().drawnPolys);
     static const bool traceLights = getenv("SHOGO_TRACE_LIGHTS") != nullptr;
     if (traceLights) {
         for (EngineObject *o : objects().all())
@@ -735,6 +740,10 @@ void GameSession::installClient(ClientDE *c, ClientContext *context)
         if (shell && shell->OnObjectRemove) shell->OnObjectRemove(shell, toHLocal(o));
     };
     server.onClientEnteredWorld = [this] { enteredWorld = true; };
+    server.onClientLeavingWorld = [this] {
+        enteredWorld = false;
+        if (shell && shell->OnExitWorld) shell->OnExitWorld(shell);
+    };
     server.commandOn = [this](int c) { return input.isCommandOn(c); };
     vars.commands = [this](const std::vector<std::string> &a) { return input.command(a); };
 
@@ -857,7 +866,15 @@ void GameSession::update(double dt)
 
     if (enteredWorld) {
         enteredWorld = false;
-        if (shell && shell->PreLoadWorld) shell->PreLoadWorld(shell, server.worldName.data());
+        if (shell && shell->PreLoadWorld) {
+            // As the game names worlds: "Worlds\02_Quarters" (it keeps what follows the last '\').
+            std::string gameName = server.worldName;
+            for (char &c : gameName)
+                if (c == '/') c = '\\';
+            if (gameName.size() > 4 && strcasecmp(gameName.c_str() + gameName.size() - 4, ".dat") == 0)
+                gameName.resize(gameName.size() - 4);
+            shell->PreLoadWorld(shell, gameName.data());
+        }
         if (shell && shell->OnEnterWorld) shell->OnEnterWorld(shell);
     }
     if (!shell) return;

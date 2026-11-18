@@ -14,6 +14,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -45,6 +46,7 @@ public:
     ResourceFS *fs = nullptr;
     EngineStrings *strings = nullptr;
     ConsoleVars *vars = nullptr;
+    std::set<std::string> gameVarNames;  // set through SetGameConVar (saved with SAVEOBJECTS_SAVEGAMECONSOLE)
 
     std::vector<ClassDef *> classes;
     std::unique_ptr<WorldData> world;
@@ -70,6 +72,8 @@ public:
 
     // Called once the world is running and the client has entered it.
     std::function<void()> onClientEnteredWorld;
+    // Called before the client's world goes away (a new world is loading).
+    std::function<void()> onClientLeavingWorld;
     // Called before a server object the client knows about is freed.
     std::function<void(EngineObject *)> removedCallback;
     // The client's input (IsCommandOn on the server).
@@ -89,6 +93,8 @@ public:
     EngineObject *createObject(ClassDef *cls, ObjectCreateStruct *ocs, float precreateKind,
                                const WorldObject *props, bool deferInitialUpdate = false);
     void removeObject(EngineObject *o);
+    // Sends a trigger message ("TRIGGER", "LOCK"...) from the player to every object with this name (tests, probe).
+    size_t triggerObjects(const std::string &name, const std::string &message);
     DDWORD engineMessage(EngineObject *o, DDWORD msg, void *data, float fdata);
     DDWORD objectMessage(EngineObject *to, EngineObject *from, DDWORD msg, Message *m);
 

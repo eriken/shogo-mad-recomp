@@ -136,15 +136,26 @@ void resetRead(void *, HMESSAGEREAD h)
 }
 // Save-game object references are plain object references here.
 DRESULT writeLoadSaveObject(void *s, HMESSAGEWRITE h, HOBJECT o) { return writeObject(s, h, o); }
+const std::unordered_map<uint32_t, EngineObject *> *g_loadMap = nullptr;
 DRESULT readLoadSaveObject(void *s, HMESSAGEREAD h, HOBJECT *o)
 {
-    HOBJECT r = readObject(s, h);
+    HOBJECT r = nullptr;
+    if (g_loadMap) {
+        Message *m = R(h);
+        uint32_t id = m ? m->get<uint32_t>() : 0;
+        auto it = g_loadMap->find(id);
+        r = it != g_loadMap->end() ? reinterpret_cast<HOBJECT>(it->second) : nullptr;
+    } else {
+        r = readObject(s, h);
+    }
     if (o) *o = r;
     return LT_OK;
 }
 
 #define HOOK(name, fn) shogo_set_virtual_hook("CSBase::" name, (void *)&fn)
 }  // namespace
+
+void setLoadObjectMap(const std::unordered_map<uint32_t, EngineObject *> *map) { g_loadMap = map; }
 
 void installMessageAPI(void *clientEngine, EngineStrings *clientStrings, void *serverEngine,
                        EngineStrings *serverStrings)

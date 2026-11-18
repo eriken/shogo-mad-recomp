@@ -9,6 +9,7 @@
 #include "engine/sound.h"
 #include "engine/image_write.h"
 #include "engine/movement.h"
+#include "engine/server.h"
 #include "engine/stub_support.h"
 
 #include <dlfcn.h>
@@ -19,6 +20,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 
 const char *shogo_stub_last_call();
@@ -66,6 +68,8 @@ int main(int argc, char **argv)
     std::vector<KeyHold> holds;
     struct MouseMove { float dx, dy; int from, to; };
     std::vector<MouseMove> mouse;
+    struct Trigger { std::string name; int frame; };
+    std::vector<Trigger> triggers;  // a "TRIGGER" message from the player to named objects
     std::vector<const char *> paths;
     std::vector<std::string> conVars;  // "+name value" pairs, set before the game starts
     for (int i = 1; i < argc; ++i) {
@@ -86,11 +90,15 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--mouse") && i + 1 < argc) {
             MouseMove m{};
             if (sscanf(argv[++i], "%f,%f@%d-%d", &m.dx, &m.dy, &m.from, &m.to) == 4) mouse.push_back(m);
+        } else if (!strcmp(argv[i], "--trigger") && i + 1 < argc) {
+            std::string arg = argv[++i];
+            size_t at = arg.rfind('@');
+            if (at != std::string::npos) triggers.push_back({arg.substr(0, at), atoi(arg.c_str() + at + 1)});
         } else paths.push_back(argv[i]);
     }
     if (paths.size() != 2) {
         fprintf(stderr,
-                "usage: %s [+var value ...] [--frames N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] <object.lto.dylib> <cshell.dylib>\n",
+                "usage: %s [+var value ...] [--frames N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME@frame ...] <object.lto.dylib> <cshell.dylib>\n",
                 argv[0]);
         return 2;
     }
@@ -121,6 +129,10 @@ int main(int argc, char **argv)
                 host.keyDown(k.vk, 1);
                 host.keyUp(k.vk);
             }
+        for (const Trigger &t : triggers)
+            if (t.frame == i && shogo::Server::instance)
+                printf("[frame %d] trigger %s: %zu object(s)\n", i, t.name.c_str(),
+                       shogo::Server::instance->triggerObjects(t.name, "TRIGGER"));
         for (const KeyHold &k : holds) {
             if (k.from == i) host.keyDown(k.vk, 1);
             if (k.to == i) host.keyUp(k.vk);

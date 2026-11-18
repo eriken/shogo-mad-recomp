@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <cstring>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace shogo {
@@ -65,6 +66,8 @@ void installMessageAPI(void *clientEngine, EngineStrings *clientStrings, void *s
 // Object ids <-> objects, provided by the object system.
 uint32_t objectId(EngineObject *obj);
 EngineObject *objectFromId(uint32_t id);
+// While set (RestoreObjects), ReadFromLoadSaveMessageObject maps saved ids through it.
+void setLoadObjectMap(const std::unordered_map<uint32_t, EngineObject *> *map);
 
 }  // namespace shogo
 

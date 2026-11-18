@@ -31,8 +31,8 @@ This repository contains **only our own code**. You supply two things yourself:
 | Engine: effects | Sprites (`.SPR` animations, camera-facing or rotatable, additive or color-keyed, shaped by the DTX alpha mask), particle systems (the game's `DEParticle` lists, gravity, lifetimes) and line systems; muzzle flashes, impacts, smoke, shell casings. Particle size is a guess (`kParticleWorldScale`) |
 | Engine: lights | Dynamic lights (`OT_LIGHT` objects: muzzle flashes, projectiles, explosions, flickering level lights) add light per pixel to the world polygons they reach and per vertex to models; `SetGlobalLightScale` tints the baked light, `SetCameraLightAdd` tints the screen (damage flashes) |
 | Engine: sound | Sound effects from `SOUND.REZ` (all PCM WAV): a software mixer at 44.1 kHz stereo with local, ambient and 3D sounds (inner/outer radius falloff, left/right pan), loops, sounds attached to objects, handles (`KillSound`, `IsSoundDone`...), volume, a soft limiter; SDL3 output in the game, `--audio-out` in the probe. No reverb or doppler |
-| Engine: saves | `SaveObjects` writes our own save format (the level-start autosave); loading saves is not done yet |
-| Engine: not yet | World lighting on models (they use a fixed light plus dynamic lights), music (DirectMusic data: DLS banks, styles, segments; the game is told there's no music driver), Smacker movies (intros are skipped), loading saves, networking |
+| Engine: saves | Quick save/load (F6/F7), the save and load menus, the level-start reload save, and level changes that carry the player over (`SaveObjects`/`RestoreObjects` in our own file format, object references remapped on load, inter-object links, client references so the player is put back into its saved object, the game console's per-level settings). Shogo's original `.sav` files aren't read; portal states aren't saved |
+| Engine: not yet | World lighting on models (they use a fixed light plus dynamic lights), music (DirectMusic data: DLS banks, styles, segments; the game is told there's no music driver), Smacker movies (intros are skipped), networking |
 | Engine: everything else | Logging stubs (every `ClientDE`/`ServerDE` entry point), generated from the API headers |
 
 `ctest --test-dir build` runs the engine unit tests (game-data tests use `gamedata/`).
@@ -41,7 +41,8 @@ Run `shogo-probe` (below) to see which engine functions the game calls, in order
 Environment switches print more: `SHOGO_TRACE_PLAYER` (player and movement object per
 frame, probe only), `SHOGO_TRACE_MOVES` (each client move and what it hit),
 `SHOGO_TRACE_INPUT`, `SHOGO_TRACE_PHYSICS`, `SHOGO_TRACE_ANIM`, `SHOGO_TRACE_MESSAGES`,
-`SHOGO_TRACE_SAVE`, `SHOGO_TRACE_FX` (sprites, particle systems and special-effect messages),
+`SHOGO_TRACE_SAVE` (each save and restore), `SHOGO_TRACE_CAMERA` (camera position, light scale and polygons
+drawn, every 30 frames), `SHOGO_TRACE_FX` (sprites, particle systems and special-effect messages),
 `SHOGO_TRACE_MODELS` (each model's skin and color once), `SHOGO_TRACE_LIGHTS` (each light once, lit
 polygon counts), `SHOGO_TRACE_SOUND` (each sound started, and files that don't load), `SHOGO_TRACE_WORLDMODELS`
 (each world model moving, returning home or hiding), `SHOGO_TRACE_ALL` (every stub call). `SHOGO_NOMODELS`, `SHOGO_NOEFFECTS`,
@@ -101,7 +102,19 @@ cd gamedata && ../build/shogo-probe +runworld "Worlds\02_Quarters" --frames 780 
 # Fire (left Ctrl, VK 0x11) at the wall in Quarters and look at the muzzle flash and impact
 cd gamedata && ../build/shogo-probe +runworld "Worlds\02_Quarters" --frames 712 --hold 0x11@700-712 \
     --screenshot /tmp/fire.png ../build/object.lto.dylib ../build/cshell.dylib
+
+# Quick save (F6), walk and fire, quick load (F7): back where you saved, ammo restored
+cd gamedata && SHOGO_TRACE_SAVE=1 ../build/shogo-probe +runworld "Worlds\02_Quarters" --frames 960 \
+    --hold 0x75@750-754 --hold 0x26@760-830 --hold 0x11@770-800 --hold 0x76@850-854 \
+    --screenshot /tmp/loaded.png ../build/object.lto.dylib ../build/cshell.dylib
+
+# Fire the level's exit trigger: the player and their weapons go on to 03_MCA_Dock (Space skips the text)
+cd gamedata && ../build/shogo-probe +runworld "Worlds\02_Quarters" --frames 1700 --trigger exit1b@800 \
+    --hold 0x20@950-953 --screenshot /tmp/next.png ../build/object.lto.dylib ../build/cshell.dylib
 ```
+
+Keys are Windows VK codes; hold them (`--hold`) for a few frames, since the game polls its
+commands once a frame and a `--key` press is released within the same frame.
 
 ## How the game source is built
 
@@ -169,7 +182,8 @@ Layers, from least to most invasive:
 | `engine/effects.*` | Sprites, particle systems and line systems: their state, the client API, drawing |
 | `engine/model.*` | `.ABC` models: parsing, posing, animation playback, node transforms, attachments |
 | `engine/math3d.*`, `engine/api_common.*` | Quaternion math; rotation helpers and `Parse` shared by both sides |
-| `engine/world_dat.*` | `.DAT` world reader (objects, BSPs, world models) |
+| `engine/world_dat.*` | `.DAT` world reader (objects, BSPs, world models, lightmaps) |
+| `engine/savegame.*` | Saved games and level changes: `SaveObjects`, `RestoreObjects`, client references |
 | `engine/dtx.*` | DTX texture decoder |
 | `engine/render_world.*` | Software world renderer and sky box |
 | `engine/modelview_main.cpp` | `shogo-modelview`: renders one model to a PNG |

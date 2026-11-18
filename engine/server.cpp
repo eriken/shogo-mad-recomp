@@ -1,10 +1,13 @@
 #include "engine/server.h"
 
+#include "generic_msg_de.h"
+
 #include "engine/api_common.h"
 #include "engine/math3d.h"
 #include "engine/model.h"
 #include "engine/sound.h"
 #include "engine/movement.h"
+#include "engine/savegame.h"
 #include "engine/stub_support.h"
 
 #include <algorithm>
@@ -300,7 +303,12 @@ void debugOut(char *fmt, ...)
 }
 
 void runGameConString(char *s) { if (s) S().vars->run(s); }
-void setGameConVar(char *name, char *val) { if (name) S().vars->set(name, val ? val : ""); }
+void setGameConVar(char *name, char *val)
+{
+    if (!name) return;
+    S().vars->set(name, val ? val : "");
+    S().gameVarNames.insert(name);
+}
 HCONVAR getGameConVar(char *name) { return reinterpret_cast<HCONVAR>(name ? S().vars->find(name) : nullptr); }
 float getVarValueFloat(HCONVAR h) { auto *v = reinterpret_cast<ConsoleVars::Var *>(h); return v ? v->number : 0; }
 char *getVarValueString(HCONVAR h)
@@ -349,80 +357,6 @@ void removeObjectFromList(ObjectList *l, HOBJECT h)
             return;
         }
 }
-// Save files live where the game asks, relative to the working directory (the
-// game folder, as on Windows), with '/' separators; missing folders are made.
-std::string savePath(const char *name)
-{
-    std::string p = name;
-    for (char &c : p)
-        if (c == '\\') c = '/';
-    for (size_t i = p.find('/'); i != std::string::npos; i = p.find('/', i + 1))
-        if (i > 0) mkdir(p.substr(0, i).c_str(), 0755);
-    return p;
-}
-
-// SaveObjects: each object writes its state (MID_SAVEOBJECT) after a header
-// the engine needs to recreate it. Our own format; Shogo's original saves
-// aren't read. Object references inside the game data are object ids.
-DRESULT saveObjects(char *fileName, ObjectList *list, DDWORD param, DDWORD)
-{
-    Server *s = Server::instance;
-    if (!s || !fileName || !list) return LT_ERROR;
-    Message out;
-    out.put("SHSV", 4);
-    out.put<uint32_t>(1);  // version
-    out.put<uint32_t>(param);
-    out.put<double>(s->time);
-    auto putStr = [&](const std::string &str) {
-        out.put<uint32_t>((uint32_t)str.size());
-        out.put(str.data(), str.size());
-    };
-    putStr(s->worldName);
-    uint32_t count = 0;
-    for (ObjectLink *l = list->m_pFirstLink; l; l = l->m_pNext) count += toObject(l->m_hObject) ? 1 : 0;
-    out.put<uint32_t>(count);
-    for (ObjectLink *l = list->m_pFirstLink; l; l = l->m_pNext) {
-        EngineObject *o = toObject(l->m_hObject);
-        if (!o) continue;
-        putStr(o->cls && o->cls->m_ClassName ? o->cls->m_ClassName : "");
-        out.put<uint32_t>(o->id);
-        out.put<int32_t>(o->type);
-        out.put<uint32_t>(o->flags);
-        out.put<uint32_t>(o->userFlags);
-        out.put(o->pos);
-        out.put(o->rot);
-        out.put(o->dims);
-        out.put(o->scale);
-        out.put(o->velocity);
-        out.put(o->accel);
-        putStr(o->filename);
-        putStr(o->skin);
-        putStr(o->name);
-        out.put<int32_t>(o->anim);
-        out.put<float>(o->animTime);
-        out.put<uint8_t>(o->animLoop);
-        out.put<double>(o->nextUpdate > 0 ? o->nextUpdate - s->time : 0);
-        Message state;
-        s->engineMessage(o, MID_SAVEOBJECT, toWriteHandle(&state), (float)param);
-        state.magic = 0;
-        out.put<uint32_t>((uint32_t)state.data.size());
-        out.put(state.data.data(), state.data.size());
-    }
-    out.magic = 0;
-
-    std::string path = savePath(fileName);
-    FILE *f = fopen(path.c_str(), "wb");
-    if (!f) {
-        fprintf(stderr, "[server] can't write save %s\n", path.c_str());
-        return LT_ERROR;
-    }
-    bool ok = fwrite(out.data.data(), 1, out.data.size(), f) == out.data.size();
-    ok = fclose(f) == 0 && ok;
-    if (getenv("SHOGO_TRACE_SAVE"))
-        printf("[save] %s: %u object(s), %zu bytes\n", path.c_str(), count, out.data.size());
-    return ok ? LT_OK : LT_ERROR;
-}
-
 void relinquishList(ObjectList *l)
 {
     if (!l) return;
@@ -786,7 +720,6 @@ ServerClient *C(HCLIENT h)
     return (c && c->magic == ServerClient::kMagic) ? c : nullptr;
 }
 HCLIENT getNextClient(HCLIENT prev) { return prev ? nullptr : reinterpret_cast<HCLIENT>(&S().client); }
-HCLIENTREF getNextClientRef(HCLIENTREF) { return nullptr; }
 DDWORD getClientID(HCLIENT h) { return C(h) ? 1 : 0; }
 DBOOL getClientName(HCLIENT h, char *name, int maxLen)
 {
@@ -880,12 +813,10 @@ void Server::install(ServerDE *d, ClassDef **defs, int n)
     d->FindNamedObjects = findNamedObjects;
     d->FindObjectsTouchingSphere = findObjectsTouchingSphere;
     d->RelinquishList = relinquishList;
-    d->SaveObjects = saveObjects;
     d->CreateObjectList = createObjectList;
     d->AddObjectToList = addObjectToList;
     d->RemoveObjectFromList = removeObjectFromList;
     d->GetNextClient = getNextClient;
-    d->GetNextClientRef = getNextClientRef;
     d->GetClientID = getClientID;
     d->GetClientName = getClientName;
     d->SetClientInfoFlags = setClientInfoFlags;
@@ -970,6 +901,7 @@ void Server::install(ServerDE *d, ClassDef **defs, int n)
     d->SetObjectFilenames = setObjectFilenames;
     d->GetContainerCode = getContainerCode;
     d->LoadWorld = apiLoadWorld;
+    installSaveAPI(d);
     d->RunWorld = apiRunWorld;
 
     HOOK("GetWorldObject", vGetWorldObject);
@@ -1095,6 +1027,22 @@ EngineObject *Server::createObject(ClassDef *cls, ObjectCreateStruct *ocs, float
     return o;
 }
 
+size_t Server::triggerObjects(const std::string &name, const std::string &message)
+{
+    std::vector<EngineObject *> targets;
+    for (EngineObject *o : objects().all())
+        if (!o->clientOnly && !o->removed && o->game && strcasecmp(o->name.c_str(), name.c_str()) == 0)
+            targets.push_back(o);
+    for (EngineObject *o : targets) {
+        Message m;
+        m.put<uint32_t>((uint32_t)message.size());
+        m.put(message.data(), message.size());
+        objectMessage(o, client.object, MID_TRIGGER, &m);
+        m.magic = 0;
+    }
+    return targets.size();
+}
+
 void Server::removeObject(EngineObject *o)
 {
     if (o && !o->clientOnly) o->removed = true;
@@ -1114,6 +1062,7 @@ void Server::flushRemovals()
                 engineMessage(other, MID_LINKBROKEN, toHObject(o), 0);
             }
         }
+        saveObjectRemoved(o);
         if (o->clientKnown && removedCallback) removedCallback(o);
         skyObjects.erase(std::remove_if(skyObjects.begin(), skyObjects.end(), [&](auto &p) { return p.first == o; }),
                          skyObjects.end());
@@ -1153,6 +1102,7 @@ DRESULT Server::loadWorld(const char *name, DDWORD flags)
     printf("[server] loading %s\n", path.c_str());
 
     bool switching = world != nullptr;
+    if (client.inWorld && onClientLeavingWorld) onClientLeavingWorld();
     if (shell && shell->PreStartWorld) shell->PreStartWorld(shell, switching);
 
     // Drop the old world's objects.
@@ -1163,6 +1113,7 @@ DRESULT Server::loadWorld(const char *name, DDWORD flags)
     haveSky = false;
     client.object = nullptr;
     client.inWorld = false;
+    clearClientRefs();
 
     world = std::move(w);
     mixer().clear();  // sounds of the old world
