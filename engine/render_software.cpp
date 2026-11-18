@@ -24,6 +24,7 @@ public:
     {
         m_dst = &dst;
         m_frame = frame;
+        dst.touch();
         m_depth.assign(size_t(dst.width) * size_t(dst.height), 0.0f);
     }
     void clearDepth() override { std::fill(m_depth.begin(), m_depth.end(), 0.0f); }

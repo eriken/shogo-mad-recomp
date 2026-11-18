@@ -8,6 +8,7 @@
 #include "engine/game_host.h"
 #include "engine/sound.h"
 #include "engine/image_write.h"
+#include "engine/gpu_screen.h"
 #include "engine/render_gpu.h"
 #include "engine/movement.h"
 #include "engine/server.h"
@@ -119,16 +120,26 @@ int main(int argc, char **argv)
     setvbuf(stdout, nullptr, _IONBF, 0);
 
     if (!movies) conVars.insert(conVars.begin(), "DisableMovies \"1\"");
+    // --gpu: the screen lives on the GPU (headless), drawn there by the GPU
+    // world renderer and the 2D drawing. --gpu-reference: a software
+    // screenshot taken under the same conditions (a GPU device exists), to
+    // compare the two.
+    std::unique_ptr<shogo::GpuScreen> gpuScreen;  // outlives host's renderer
     shogo::GameHost host;
     host.commandLine = conVars;  // run after autoexec.cfg, as the game does
-    // --gpu-reference: a software screenshot taken under the same conditions
-    // as --gpu (a GPU device exists), to compare the two backends.
     std::unique_ptr<shogo::RenderBackend> gpuDevice;
     if (gpu || gpuReference) {
-        auto backend = shogo::makeGpuBackend();
+        gpuScreen = shogo::GpuScreen::create(nullptr);
+        if (!gpuScreen) return 1;
+        auto backend = shogo::makeGpuBackend(gpuScreen->device(), gpuScreen.get());
         if (!backend) return 1;
-        if (gpuReference) gpuDevice = std::move(backend);  // kept alive, not drawn with
-        else host.session.renderer.setBackend(std::move(backend));
+        if (gpuReference) {
+            gpuDevice = std::move(backend);  // kept alive, not drawn with
+        } else {
+            host.session.renderer.setBackend(std::move(backend));
+            host.client.screenTarget = gpuScreen.get();
+            host.client.rendererOnScreenTarget = true;
+        }
     }
     std::string err;
     if (!host.mountGameData(&err)) fail(err + "\n(run shogo-probe from the extracted game folder)");
@@ -198,6 +209,7 @@ int main(int argc, char **argv)
     printf("Ran %d frame(s), %u presented%s\n", frames, host.client.framesPresented,
            host.quitRequested() ? " (game requested shutdown)" : "");
     if (screenshot) {
+        if (host.client.screenTarget) host.client.screenTarget->toCPU(*host.client.screen);
         bool ok = shogo::writePNG(*host.client.screen, screenshot);
         printf("Screenshot %s: %s\n", ok ? "written" : "FAILED", screenshot);
     }

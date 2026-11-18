@@ -1,7 +1,6 @@
 // Shows finished frames in the game window through SDL's GPU API (Metal on
-// macOS). For now a frame is the software renderer's output: it's uploaded to
-// a texture and scaled into the window, letterboxed. The GPU renderer will
-// draw into the same swapchain later.
+// macOS), scaled to fit and letterboxed: either a CPU frame, uploaded each
+// time, or a GPU texture (the GPU screen, gpu_screen.h).
 #ifndef SHOGO_ENGINE_GPU_PRESENT_H
 #define SHOGO_ENGINE_GPU_PRESENT_H
 
@@ -19,6 +18,9 @@ public:
     bool init(SDL_Window *window);
     void setVSync(bool on);
     void present(const Surface &frame);
+    // Records showing tex (w x h, letterboxed) into the window on cmd; the
+    // caller submits cmd.
+    void showTexture(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, int w, int h);
     const char *driver() const;
     SDL_GPUDevice *device() const { return m_device; }
     void shutdown();  // releases the window; safe to call twice

@@ -1,5 +1,7 @@
 #include "engine/render_gpu.h"
 
+#include "engine/gpu_screen.h"
+
 #include <SDL3/SDL.h>
 
 #include <algorithm>
@@ -192,7 +194,7 @@ struct AtlasRect {
 class GpuBackend final : public RenderBackend {
 public:
     ~GpuBackend() override;
-    bool init(SDL_GPUDevice *device);
+    bool init(SDL_GPUDevice *device, GpuScreen *screen);
 
     void begin(Surface &dst, const RenderFrame &frame) override;
     void clearDepth() override { m_clearDepth = true; }
@@ -217,6 +219,9 @@ private:
 
     SDL_GPUDevice *m_device = nullptr;
     bool m_ownsDevice = false;
+    GpuScreen *m_screen = nullptr;
+    bool m_direct = false;               // this frame draws into the GPU screen
+    SDL_GPUTexture *m_target = nullptr;  // m_color, or the screen's texture
     SDL_GPUGraphicsPipeline *m_pipelines[kPipelines] = {};
     SDL_GPUSampler *m_texSampler = nullptr, *m_lmSampler = nullptr;
     SDL_GPUTexture *m_white = nullptr;
@@ -261,9 +266,10 @@ GpuBackend::~GpuBackend()
     }
 }
 
-bool GpuBackend::init(SDL_GPUDevice *device)
+bool GpuBackend::init(SDL_GPUDevice *device, GpuScreen *screen)
 {
     m_device = device;
+    m_screen = screen;
     if (!m_device) {
         if (!SDL_InitSubSystem(SDL_INIT_VIDEO)) return false;  // SDL's GPU devices need it
         m_ownsDevice = true;
@@ -584,7 +590,12 @@ void GpuBackend::begin(Surface &dst, const RenderFrame &frame)
     m_dst = &dst;
     m_frame = frame;
     m_hasScreenAdd = false;
-    m_cmd = SDL_AcquireGPUCommandBuffer(m_device);
+    m_direct = m_screen && m_screen->isScreen(dst);
+    if (m_direct) {
+        m_cmd = m_screen->beginExternal(dst, &m_target);
+    } else {
+        m_cmd = SDL_AcquireGPUCommandBuffer(m_device);
+    }
     if (!m_cmd) return;
     if (!m_color || m_w != dst.width || m_h != dst.height) {
         if (m_color) SDL_ReleaseGPUTexture(m_device, m_color);
@@ -596,14 +607,16 @@ void GpuBackend::begin(Surface &dst, const RenderFrame &frame)
         m_w = dst.width;
         m_h = dst.height;
     }
+    m_clearDepth = true;
+    if (m_direct) return;
+    m_target = m_color;
     // What's already on the surface stays under the 3D.
     uploadTexture(m_color, dst.pixels.data(), dst.width, dst.height, 4);
-    m_clearDepth = true;
 }
 
 void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
 {
-    if (!m_cmd || !m_color || !m_depth || polys.empty()) return;
+    if (!m_cmd || !m_target || !m_depth || polys.empty()) return;
     syncResources();
     const DRect vp = viewport(m_frame.cam, m_w, m_h);
     const float vw = float(vp.right - vp.left), vh = float(vp.bottom - vp.top);
@@ -646,7 +659,7 @@ void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
     fu.atlasInv[2] = float(nLights);
 
     SDL_GPUColorTargetInfo ct{};
-    ct.texture = m_color;
+    ct.texture = m_target;
     ct.load_op = SDL_GPU_LOADOP_LOAD;
     ct.store_op = SDL_GPU_STOREOP_STORE;
     SDL_GPUDepthStencilTargetInfo dt{};
@@ -691,6 +704,11 @@ void GpuBackend::applyScreenAdd()
     const uint32_t add[3] = {uint32_t(std::clamp(m_screenAdd[2], 0.0f, 1.0f) * 255),
                              uint32_t(std::clamp(m_screenAdd[1], 0.0f, 1.0f) * 255),
                              uint32_t(std::clamp(m_screenAdd[0], 0.0f, 1.0f) * 255)};
+    if (m_direct) {
+        const uint32_t rgb[3] = {add[2], add[1], add[0]};
+        m_screen->add(dst, vp, rgb);
+        return;
+    }
     for (int y = vp.top; y < vp.bottom; ++y) {
         uint32_t *row = dst.row(y);
         for (int x = vp.left; x < vp.right; ++x) {
@@ -704,6 +722,12 @@ void GpuBackend::applyScreenAdd()
 void GpuBackend::end()
 {
     if (!m_cmd) return;
+    if (m_direct) {  // the screen submits its command buffer
+        m_cmd = nullptr;
+        if (m_hasScreenAdd) applyScreenAdd();
+        m_dst = nullptr;
+        return;
+    }
     // Read the frame back into the surface.
     const Uint32 bytes = Uint32(m_w) * Uint32(m_h) * 4;
     SDL_GPUTransferBufferCreateInfo bi{SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD, bytes, 0};
@@ -733,15 +757,16 @@ void GpuBackend::end()
         SDL_ReleaseGPUTransferBuffer(m_device, tb);
     }
     if (m_hasScreenAdd) applyScreenAdd();
+    m_dst->touch();
     m_dst = nullptr;
 }
 
 }  // namespace
 
-std::unique_ptr<RenderBackend> makeGpuBackend(SDL_GPUDevice *device)
+std::unique_ptr<RenderBackend> makeGpuBackend(SDL_GPUDevice *device, GpuScreen *screen)
 {
     auto backend = std::make_unique<GpuBackend>();
-    if (!backend->init(device)) {
+    if (!backend->init(device, screen)) {
         SDL_Log("GPU renderer: %s", SDL_GetError());
         return nullptr;
     }

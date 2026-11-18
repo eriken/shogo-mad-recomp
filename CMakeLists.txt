@@ -146,14 +146,14 @@ set_tests_properties(engine-tests PROPERTIES ENVIRONMENT
 # shogo-probe: loads both game modules against the stub engine and reports
 # which engine calls the game makes during startup.
 find_package(SDL3 CONFIG REQUIRED)
-add_executable(shogo-probe engine/probe_main.cpp engine/render_gpu.cpp)
+add_executable(shogo-probe engine/probe_main.cpp engine/render_gpu.cpp engine/gpu_screen.cpp engine/gpu_present.cpp)
 target_include_directories(shogo-probe PRIVATE "${CMAKE_SOURCE_DIR}")
 target_link_libraries(shogo-probe PRIVATE shogo_engine shogo_compat SDL3::SDL3)
 add_dependencies(shogo-probe shogo_object shogo_cshell)
 
 # shogo: the game in a window.
 find_package(SDL3 CONFIG REQUIRED)
-add_executable(shogo engine/shogo_main.cpp engine/launcher.cpp engine/gpu_present.cpp engine/render_gpu.cpp)
+add_executable(shogo engine/shogo_main.cpp engine/launcher.cpp engine/gpu_present.cpp engine/render_gpu.cpp engine/gpu_screen.cpp)
 target_include_directories(shogo PRIVATE "${CMAKE_SOURCE_DIR}")
 target_link_libraries(shogo PRIVATE shogo_engine shogo_compat SDL3::SDL3)
 target_compile_definitions(shogo PRIVATE SHOGO_RECOMP_VERSION="${PROJECT_VERSION}")
@@ -177,12 +177,12 @@ target_link_libraries(shogo-worldinfo PRIVATE shogo_engine)
 add_executable(shogo-modelview engine/modelview_main.cpp)
 target_link_libraries(shogo-modelview PRIVATE shogo_engine)
 
-add_executable(shogo-worldview engine/worldview_main.cpp engine/render_gpu.cpp)
+add_executable(shogo-worldview engine/worldview_main.cpp engine/render_gpu.cpp engine/gpu_screen.cpp engine/gpu_present.cpp)
 target_link_libraries(shogo-worldview PRIVATE shogo_engine SDL3::SDL3)
 
 # shogo-render-compare: the software and GPU backends on a synthetic scene
 # with every polygon feature; fails when they disagree, skips without a GPU.
-add_executable(shogo-render-compare engine/render_compare_main.cpp engine/render_gpu.cpp)
+add_executable(shogo-render-compare engine/render_compare_main.cpp engine/render_gpu.cpp engine/gpu_screen.cpp engine/gpu_present.cpp)
 target_link_libraries(shogo-render-compare PRIVATE shogo_engine SDL3::SDL3)
 add_test(NAME render-compare COMMAND shogo-render-compare)
 set_tests_properties(render-compare PROPERTIES SKIP_RETURN_CODE 77)

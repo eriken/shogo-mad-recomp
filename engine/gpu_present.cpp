@@ -97,6 +97,13 @@ void GpuPresenter::present(const Surface &s)
     SDL_UploadToGPUTexture(copy, &src, &dst, true);
     SDL_EndGPUCopyPass(copy);
 
+    showTexture(cmd, m_frame, s.width, s.height);
+    SDL_SubmitGPUCommandBuffer(cmd);
+}
+
+void GpuPresenter::showTexture(SDL_GPUCommandBuffer *cmd, SDL_GPUTexture *tex, int w, int h)
+{
+    if (!m_window || w <= 0 || h <= 0) return;
     SDL_GPUTexture *swap = nullptr;
     Uint32 sw = 0, sh = 0;
     if (SDL_WaitAndAcquireGPUSwapchainTexture(cmd, m_window, &swap, &sw, &sh) && swap) {  // null: minimised
@@ -109,22 +116,21 @@ void GpuPresenter::present(const Surface &s)
         ct.clear_color = {0, 0, 0, 1};
         SDL_EndGPURenderPass(SDL_BeginGPURenderPass(cmd, &ct, 1, nullptr));
 
-        const float scale = std::min(float(sw) / float(s.width), float(sh) / float(s.height));
-        const Uint32 w = Uint32(float(s.width) * scale), h = Uint32(float(s.height) * scale);
+        const float scale = std::min(float(sw) / float(w), float(sh) / float(h));
+        const Uint32 bw = Uint32(float(w) * scale), bh = Uint32(float(h) * scale);
         SDL_GPUBlitInfo blit{};
-        blit.source.texture = m_frame;
-        blit.source.w = Uint32(s.width);
-        blit.source.h = Uint32(s.height);
+        blit.source.texture = tex;
+        blit.source.w = Uint32(w);
+        blit.source.h = Uint32(h);
         blit.destination.texture = swap;
-        blit.destination.x = (sw - w) / 2;
-        blit.destination.y = (sh - h) / 2;
-        blit.destination.w = w;
-        blit.destination.h = h;
+        blit.destination.x = (sw - bw) / 2;
+        blit.destination.y = (sh - bh) / 2;
+        blit.destination.w = bw;
+        blit.destination.h = bh;
         blit.load_op = SDL_GPU_LOADOP_LOAD;
         blit.filter = SDL_GPU_FILTER_NEAREST;
         SDL_BlitGPUTexture(cmd, &blit);
     }
-    SDL_SubmitGPUCommandBuffer(cmd);
 }
 
 }  // namespace shogo

@@ -117,16 +117,57 @@ DRESULT setRenderMode(RMode *m)
     return LT_OK;
 }
 
+// ---- the screen on the GPU ----------------------------------------------------
+
+// The GPU screen, when s is the screen and it lives there.
+ScreenTarget *gpuScreen(const Surface *s)
+{
+    return g->screenTarget && s && s == g->screen.get() ? g->screenTarget : nullptr;
+}
+
+// A surface the CPU is about to read: the screen's CPU copy is brought up to date.
+Surface &forRead(Surface &s)
+{
+    if (ScreenTarget *t = gpuScreen(&s)) t->toCPU(s);
+    return s;
+}
+
+// A surface the CPU is about to draw on: for the screen, its CPU copy, which
+// then counts until the next GPU drawing.
+Surface &forCPUWrite(Surface &s)
+{
+    if (ScreenTarget *t = gpuScreen(&s)) {
+        t->toCPU(s);
+        t->cpuWrites(s);
+    }
+    return s;
+}
+
+// A 2D operation from src onto dst: on the GPU when dst is the GPU screen
+// (and src isn't), otherwise with the CPU.
+template <class Gpu, class Cpu> DRESULT draw2D(Surface *dst, Surface *src, Gpu onGpu, Cpu onCpu)
+{
+    if (!dst || !src) return LT_ERROR;
+    forRead(*src);
+    ScreenTarget *t = gpuScreen(dst);
+    if (t && src != dst) onGpu(*t, *dst, *src);
+    else onCpu(forCPUWrite(*dst), *src);
+    return LT_OK;
+}
+
 DRESULT flipScreen(DDWORD)
 {
     ++g->framesPresented;
-    if (g->present) g->present(*g->screen);
+    if (g->screenTarget) g->screenTarget->present(*g->screen);
+    else if (g->present) g->present(*g->screen);
     return LT_OK;
 }
 
 DRESULT clearScreen(DRect *rect, DDWORD flags)
 {
-    if (flags & CLEARSCREEN_SCREEN) fillRect(*g->screen, rect, 0);
+    if (!(flags & CLEARSCREEN_SCREEN)) return LT_OK;
+    if (ScreenTarget *t = gpuScreen(g->screen.get())) t->fill(*g->screen, rect, 0);
+    else fillRect(*g->screen, rect, 0);
     return LT_OK;
 }
 
@@ -188,7 +229,7 @@ DRESULT getPixel(HSURFACE h, DDWORD x, DDWORD y, HDECOLOR *out)
 {
     Surface *s = toSurface(h);
     if (!s || !out || x >= (DDWORD)s->width || y >= (DDWORD)s->height) return LT_ERROR;
-    *out = s->row((int)y)[x];
+    *out = forRead(*s).row((int)y)[x];
     return LT_OK;
 }
 
@@ -196,7 +237,8 @@ DRESULT setPixel(HSURFACE h, DDWORD x, DDWORD y, HDECOLOR c)
 {
     Surface *s = toSurface(h);
     if (!s || x >= (DDWORD)s->width || y >= (DDWORD)s->height) return LT_ERROR;
-    s->row((int)y)[x] = color(c);
+    forCPUWrite(*s).row((int)y)[x] = color(c);
+    s->touch();
     return LT_OK;
 }
 
@@ -221,7 +263,7 @@ DRESULT getBorderSize(HSURFACE h, HDECOLOR c, DRect *out)
 {
     Surface *s = toSurface(h);
     if (!s || !out) return LT_ERROR;
-    *out = borderSize(*s, color(c));
+    *out = borderSize(forRead(*s), color(c));
     return LT_OK;
 }
 
@@ -229,103 +271,116 @@ BlitParams copyMode() { return BlitParams{}; }
 BlitParams keyMode(HDECOLOR key) { return BlitParams{BlitMode::Transparent, color(key), 0}; }
 BlitParams solidMode(HDECOLOR key, HDECOLOR fill) { return BlitParams{BlitMode::SolidColor, color(key), color(fill)}; }
 
-#define SURFACES_OR_FAIL(dst, src)          \
-    Surface *dst##S = toSurface(dst);       \
-    Surface *src##S = toSurface(src);       \
-    if (!dst##S || !src##S) return LT_ERROR
-
 DRESULT drawSurfaceToSurface(HSURFACE dst, HSURFACE src, DRect *r, int x, int y)
 {
-    SURFACES_OR_FAIL(dst, src);
-    blit(*dstS, *srcS, r, x, y, copyMode());
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src), [&](ScreenTarget &t, Surface &d, Surface &s) { t.blit(d, s, r, x, y, copyMode()); },
+        [&](Surface &d, Surface &s) { blit(d, s, r, x, y, copyMode()); });
 }
 
 DRESULT drawSurfaceToSurfaceTransparent(HSURFACE dst, HSURFACE src, DRect *r, int x, int y, HDECOLOR key)
 {
-    SURFACES_OR_FAIL(dst, src);
-    blit(*dstS, *srcS, r, x, y, keyMode(key));
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src), [&](ScreenTarget &t, Surface &d, Surface &s) { t.blit(d, s, r, x, y, keyMode(key)); },
+        [&](Surface &d, Surface &s) { blit(d, s, r, x, y, keyMode(key)); });
 }
 
 DRESULT drawSurfaceSolidColor(HSURFACE dst, HSURFACE src, DRect *r, int x, int y, HDECOLOR key, HDECOLOR fill)
 {
-    SURFACES_OR_FAIL(dst, src);
-    blit(*dstS, *srcS, r, x, y, solidMode(key, fill));
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src),
+        [&](ScreenTarget &t, Surface &d, Surface &s) { t.blit(d, s, r, x, y, solidMode(key, fill)); },
+        [&](Surface &d, Surface &s) { blit(d, s, r, x, y, solidMode(key, fill)); });
 }
 
 DRESULT drawSurfaceMasked(HSURFACE dst, HSURFACE src, HSURFACE mask, DRect *r, int x, int y, HDECOLOR key)
 {
-    SURFACES_OR_FAIL(dst, src);
     Surface *m = toSurface(mask);
     if (!m) return LT_ERROR;
-    maskedBlit(*dstS, *srcS, *m, r, x, y, color(key));
-    return LT_OK;
+    forRead(*m);
+    if (m == toSurface(dst)) {  // the mask is the destination itself: on the CPU
+        forCPUWrite(*m);
+        return draw2D(
+            toSurface(dst), toSurface(src), [](ScreenTarget &, Surface &, Surface &) {},
+            [&](Surface &d, Surface &s) { maskedBlit(d, s, *m, r, x, y, color(key)); });
+    }
+    return draw2D(
+        toSurface(dst), toSurface(src),
+        [&](ScreenTarget &t, Surface &d, Surface &s) { t.maskedBlit(d, s, *m, r, x, y, color(key)); },
+        [&](Surface &d, Surface &s) { maskedBlit(d, s, *m, r, x, y, color(key)); });
 }
 
 DRESULT scaleSurfaceToSurface(HSURFACE dst, HSURFACE src, DRect *dr, DRect *sr)
 {
-    SURFACES_OR_FAIL(dst, src);
-    scaleBlit(*dstS, *srcS, dr, sr, copyMode());
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src),
+        [&](ScreenTarget &t, Surface &d, Surface &s) { t.scaleBlit(d, s, dr, sr, copyMode()); },
+        [&](Surface &d, Surface &s) { scaleBlit(d, s, dr, sr, copyMode()); });
 }
 
 DRESULT scaleSurfaceToSurfaceTransparent(HSURFACE dst, HSURFACE src, DRect *dr, DRect *sr, HDECOLOR key)
 {
-    SURFACES_OR_FAIL(dst, src);
-    scaleBlit(*dstS, *srcS, dr, sr, keyMode(key));
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src),
+        [&](ScreenTarget &t, Surface &d, Surface &s) { t.scaleBlit(d, s, dr, sr, keyMode(key)); },
+        [&](Surface &d, Surface &s) { scaleBlit(d, s, dr, sr, keyMode(key)); });
 }
 
 DRESULT scaleSurfaceToSurfaceSolidColor(HSURFACE dst, HSURFACE src, DRect *dr, DRect *sr, HDECOLOR key, HDECOLOR fill)
 {
-    SURFACES_OR_FAIL(dst, src);
-    scaleBlit(*dstS, *srcS, dr, sr, solidMode(key, fill));
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src),
+        [&](ScreenTarget &t, Surface &d, Surface &s) { t.scaleBlit(d, s, dr, sr, solidMode(key, fill)); },
+        [&](Surface &d, Surface &s) { scaleBlit(d, s, dr, sr, solidMode(key, fill)); });
 }
 
 DRESULT warpSurfaceToSurface(HSURFACE dst, HSURFACE src, DWarpPt *pts, int n)
 {
-    SURFACES_OR_FAIL(dst, src);
-    warpBlit(*dstS, *srcS, pts, n, copyMode());
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src),
+        [&](ScreenTarget &t, Surface &d, Surface &s) { t.warpBlit(d, s, pts, n, copyMode()); },
+        [&](Surface &d, Surface &s) { warpBlit(d, s, pts, n, copyMode()); });
 }
 
 DRESULT warpSurfaceToSurfaceTransparent(HSURFACE dst, HSURFACE src, DWarpPt *pts, int n, HDECOLOR key)
 {
-    SURFACES_OR_FAIL(dst, src);
-    warpBlit(*dstS, *srcS, pts, n, keyMode(key));
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src),
+        [&](ScreenTarget &t, Surface &d, Surface &s) { t.warpBlit(d, s, pts, n, keyMode(key)); },
+        [&](Surface &d, Surface &s) { warpBlit(d, s, pts, n, keyMode(key)); });
 }
 
 DRESULT warpSurfaceToSurfaceSolidColor(HSURFACE dst, HSURFACE src, DWarpPt *pts, int n, HDECOLOR key, HDECOLOR fill)
 {
-    SURFACES_OR_FAIL(dst, src);
-    warpBlit(*dstS, *srcS, pts, n, solidMode(key, fill));
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src),
+        [&](ScreenTarget &t, Surface &d, Surface &s) { t.warpBlit(d, s, pts, n, solidMode(key, fill)); },
+        [&](Surface &d, Surface &s) { warpBlit(d, s, pts, n, solidMode(key, fill)); });
 }
 
 DRESULT transformSurfaceToSurface(HSURFACE dst, HSURFACE src, DFloatPt *o, int x, int y, float a, float sx, float sy)
 {
-    SURFACES_OR_FAIL(dst, src);
-    transformBlit(*dstS, *srcS, o, x, y, a, sx, sy, copyMode());
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src),
+        [&](ScreenTarget &t, Surface &d, Surface &s) { t.transformBlit(d, s, o, x, y, a, sx, sy, copyMode()); },
+        [&](Surface &d, Surface &s) { transformBlit(d, s, o, x, y, a, sx, sy, copyMode()); });
 }
 
 DRESULT transformSurfaceToSurfaceTransparent(HSURFACE dst, HSURFACE src, DFloatPt *o, int x, int y, float a, float sx,
                                              float sy, HDECOLOR key)
 {
-    SURFACES_OR_FAIL(dst, src);
-    transformBlit(*dstS, *srcS, o, x, y, a, sx, sy, keyMode(key));
-    return LT_OK;
+    return draw2D(
+        toSurface(dst), toSurface(src),
+        [&](ScreenTarget &t, Surface &d, Surface &s) { t.transformBlit(d, s, o, x, y, a, sx, sy, keyMode(key)); },
+        [&](Surface &d, Surface &s) { transformBlit(d, s, o, x, y, a, sx, sy, keyMode(key)); });
 }
 
 DRESULT fillRectImpl(HSURFACE dst, DRect *r, HDECOLOR c)
 {
     Surface *s = toSurface(dst);
     if (!s) return LT_ERROR;
-    fillRect(*s, r, color(c));
+    if (ScreenTarget *t = gpuScreen(s)) t->fill(*s, r, color(c));
+    else fillRect(*s, r, color(c));
     return LT_OK;
 }
 
@@ -334,7 +389,8 @@ DBOOL drawBitmapToSurface(HSURFACE dst, char *name, DRect *r, int x, int y)
     Surface *d = toSurface(dst);
     auto bmp = loadBitmap(name);
     if (!d || !bmp) return DFALSE;
-    blit(*d, *bmp, r, x, y, copyMode());
+    if (ScreenTarget *t = gpuScreen(d)) t->blit(*d, *bmp, r, x, y, copyMode());
+    else blit(*d, *bmp, r, x, y, copyMode());
     return DTRUE;
 }
 
@@ -368,6 +424,7 @@ void drawStringToSurface(HSURFACE dst, HDEFONT f, HSTRING s, DRect *r, HDECOLOR 
     Surface *d = toSurface(dst);
     if (!d) return;
     DRect rect = r ? *r : DRect{0, 0, d->width, d->height};
+    forCPUWrite(*d);
     if (!GETT(back)) fillRect(*d, &rect, color(back));
     fontOr(f)->draw(*d, text(s), rect.left, rect.top, color(fore), &rect);
 }
@@ -420,6 +477,7 @@ DRESULT stopVideo()
 // Draws the frame due now onto the screen; the game's PostUpdate flips it.
 DRESULT updateVideo()
 {
+    if (movie().playing()) forCPUWrite(*g->screen);
     movie().update(g->time, *g->screen);
     return LT_OK;
 }

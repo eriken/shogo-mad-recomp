@@ -99,6 +99,7 @@ void MoviePlayer::update(double now, Surface &screen)
 // Smacker played them; doubled ones repeat each line.
 void MoviePlayer::draw(Surface &screen) const
 {
+    screen.touch();
     const SmackerVideo &v = *m_video;
     const int lineScale = (v.interlaced() || v.doubled()) ? 2 : 1;
     const int srcW = v.width(), srcH = v.height() * lineScale;

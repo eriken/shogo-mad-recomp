@@ -5,6 +5,12 @@
 
 namespace shogo {
 
+uint64_t nextSurfaceId()
+{
+    static uint64_t next = 0;
+    return ++next;
+}
+
 // ---------------------------------------------------------------------------
 // PCX
 
@@ -90,6 +96,7 @@ void blit(Surface &dst, const Surface &src, const DRect *srcRect, int dx, int dy
         dy += r.top - srcRect->top;
     }
     int w = r.right - r.left, h = r.bottom - r.top;
+    dst.touch();
     // Clip against the destination.
     if (dx < 0) { r.left -= dx; w += dx; dx = 0; }
     if (dy < 0) { r.top -= dy; h += dy; dy = 0; }
@@ -113,6 +120,7 @@ void scaleBlit(Surface &dst, const Surface &src, const DRect *dstRect, const DRe
     int sw = sr.right - sr.left, sh = sr.bottom - sr.top, dw = dr.right - dr.left, dh = dr.bottom - dr.top;
     if (sw <= 0 || sh <= 0 || dw <= 0 || dh <= 0) return;
     DRect clip = clampRect(dr, dst);
+    dst.touch();
     for (int y = clip.top; y < clip.bottom; ++y) {
         int syy = sr.top + int((int64_t(y - dr.top) * sh) / dh);
         if (syy < 0 || syy >= src.height) continue;
@@ -176,6 +184,7 @@ void warpBlit(Surface &dst, const Surface &src, const DWarpPt *pts, int n, const
     solve(pts[0].source_y, pts[1].source_y, pts[2].source_y, m.d, m.e, m.f);
     DFloatPt poly[10];
     for (int i = 0; i < n; ++i) poly[i] = DFloatPt{pts[i].dest_x, pts[i].dest_y};
+    dst.touch();
     rasterConvex(dst, poly, n, [&](int x, int y, float fx, float fy) {
         int sx = std::clamp((int)(m.a * fx + m.b * fy + m.c), 0, src.width - 1);
         int sy = std::clamp((int)(m.d * fx + m.e * fy + m.f), 0, src.height - 1);
@@ -198,6 +207,7 @@ void transformBlit(Surface &dst, const Surface &src, const DFloatPt *origin, int
         float x = cx[i] * sx, y = cyy[i] * sy;
         poly[i] = DFloatPt{px + x * cs - y * sn, py + x * sn + y * cs};
     }
+    dst.touch();
     rasterConvex(dst, poly, 4, [&](int x, int y, float fx, float fy) {
         float rx = fx - px, ry = fy - py;
         float ux = (rx * cs + ry * sn) / sx + hw, uy = (-rx * sn + ry * cs) / sy + hh;
@@ -211,6 +221,7 @@ void maskedBlit(Surface &dst, const Surface &src, const Surface &mask, const DRe
 {
     if (mask.width == 0 || mask.height == 0) return;
     DRect r = clampRect(srcRect ? *srcRect : whole(src), src);
+    dst.touch();
     for (int y = r.top; y < r.bottom; ++y) {
         int ty = dy + (y - r.top);
         if (ty < 0 || ty >= dst.height) continue;
@@ -226,6 +237,7 @@ void maskedBlit(Surface &dst, const Surface &src, const Surface &mask, const DRe
 void fillRect(Surface &dst, const DRect *rect, uint32_t color)
 {
     DRect r = clampRect(rect ? *rect : whole(dst), dst);
+    dst.touch();
     for (int y = r.top; y < r.bottom; ++y) std::fill(dst.row(y) + r.left, dst.row(y) + r.right, color);
 }
 

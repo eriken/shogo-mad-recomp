@@ -7,6 +7,7 @@
 #include "engine/game_import.h"
 #include "engine/inno_setup.h"
 #include "engine/gpu_present.h"
+#include "engine/gpu_screen.h"
 #include "engine/launcher.h"
 #include "engine/render_gpu.h"
 #include "engine/sound.h"
@@ -195,6 +196,7 @@ int main(int argc, char **argv)
     SDL_Texture *texture = nullptr;
     int texW = 0, texH = 0;
 
+    std::unique_ptr<shogo::GpuScreen> gpuScreen;  // outlives host's renderer
     shogo::GameHost host;
     host.commandLine = conVars;
     host.client.present = [&](const shogo::Surface &s) {
@@ -218,10 +220,18 @@ int main(int argc, char **argv)
         SDL_RenderPresent(renderer);
     };
 
-    // SHOGO_RENDERER=gpu: the GPU world renderer (in progress: no models or
-    // effects yet).
+    // SHOGO_RENDERER=gpu: the screen lives on the GPU; the world and the 2D
+    // drawing go straight into it.
     if (const char *r = getenv("SHOGO_RENDERER"); r && !strcmp(r, "gpu") && gpu.device()) {
-        if (auto backend = shogo::makeGpuBackend(gpu.device())) host.session.renderer.setBackend(std::move(backend));
+        gpuScreen = shogo::GpuScreen::create(&gpu);
+        auto backend = gpuScreen ? shogo::makeGpuBackend(gpu.device(), gpuScreen.get()) : nullptr;
+        if (backend) {
+            host.session.renderer.setBackend(std::move(backend));
+            host.client.screenTarget = gpuScreen.get();
+            host.client.rendererOnScreenTarget = true;
+        } else {
+            gpuScreen.reset();
+        }
     }
 
     std::string err;
@@ -295,6 +305,9 @@ int main(int argc, char **argv)
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Shogo", host.client.quitMessage.c_str(), window);
     if (texture) SDL_DestroyTexture(texture);
     if (renderer) SDL_DestroyRenderer(renderer);
+    host.session.renderer.setBackend(nullptr);  // GPU objects go before their device
+    host.client.screenTarget = nullptr;
+    gpuScreen.reset();
     gpu.shutdown();  // before the window goes
     SDL_DestroyWindow(window);
     SDL_Quit();

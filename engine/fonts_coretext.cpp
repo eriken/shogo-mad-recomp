@@ -121,6 +121,7 @@ void Font::measure(const char *text, int *w, int *h) const
 
 void Font::draw(Surface &dst, const char *text, int x, int y, uint32_t color, const DRect *clip) const
 {
+    dst.touch();
     int tw = 0, th = 0;
     measure(text, &tw, &th);
     if (tw <= 0 || th <= 0) return;

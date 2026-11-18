@@ -4,6 +4,7 @@
 
 #include "engine/fonts.h"
 #include "engine/rez_file.h"
+#include "engine/screen_target.h"
 #include "engine/strings.h"
 #include "engine/surfaces.h"
 
@@ -20,6 +21,10 @@ struct ClientContext {
     // The display: the screen surface is what FlipScreen presents.
     std::unique_ptr<Surface> screen;
     std::function<void(const Surface &)> present;  // called by FlipScreen (may be empty)
+    // Set when the screen lives on the GPU: drawing that targets the screen
+    // goes there, and screen->pixels is only current after toCPU().
+    ScreenTarget *screenTarget = nullptr;
+    bool rendererOnScreenTarget = false;  // the world renderer draws into it directly
     unsigned framesPresented = 0;
 
     // Set when the game asks the engine to shut down.

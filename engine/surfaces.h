@@ -15,6 +15,8 @@
 
 namespace shogo {
 
+uint64_t nextSurfaceId();
+
 struct Surface {
     static constexpr uint32_t kMagic = 0x53524631;  // "SRF1"
     uint32_t magic = kMagic;
@@ -24,10 +26,42 @@ struct Surface {
     void *userData = nullptr;
     bool optimized = false;
     HDECOLOR optimizedKey = 0;
+    // Unique per surface (copies get their own), and bumped by touch() after
+    // every change to the pixels, so GPU copies know when they're stale.
+    uint64_t id = nextSurfaceId();
+    uint64_t version = 0;
 
     Surface(int w, int h) : width(w), height(h), pixels(size_t(w) * size_t(h), 0) {}
+    Surface(const Surface &o) { *this = o; }
+    Surface(Surface &&o) noexcept { *this = std::move(o); }
+    Surface &operator=(const Surface &o)
+    {
+        assign(o.width, o.height, o.userData, o.optimized, o.optimizedKey);
+        pixels = o.pixels;
+        return *this;
+    }
+    Surface &operator=(Surface &&o) noexcept
+    {
+        assign(o.width, o.height, o.userData, o.optimized, o.optimizedKey);
+        pixels = std::move(o.pixels);
+        return *this;
+    }
     uint32_t *row(int y) { return &pixels[size_t(y) * size_t(width)]; }
     const uint32_t *row(int y) const { return &pixels[size_t(y) * size_t(width)]; }
+    void touch() { ++version; }
+
+private:
+    void assign(int w, int h, void *ud, bool opt, HDECOLOR key)
+    {
+        magic = kMagic;
+        width = w;
+        height = h;
+        userData = ud;
+        optimized = opt;
+        optimizedKey = key;
+        id = nextSurfaceId();
+        version = 0;
+    }
 };
 
 inline Surface *toSurface(HSURFACE h)

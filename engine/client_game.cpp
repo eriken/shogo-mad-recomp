@@ -23,7 +23,15 @@ namespace shogo {
 GameSession *GameSession::instance = nullptr;
 
 namespace {
+
 GameSession &G() { return *GameSession::instance; }
+
+// A renderer that can't draw into the GPU screen draws on its CPU copy.
+void screenForRenderer()
+{
+    ClientContext &c = *G().ctx;
+    if (c.screenTarget && !c.rendererOnScreenTarget) c.screenTarget->cpuWrites(*c.screen);
+}
 EngineObject *O(HLOCALOBJ h) { return toObject(h); }
 
 constexpr int kToServer = 100;  // Message::kind for client -> server messages
@@ -840,6 +848,7 @@ DRESULT renderCamera(HLOCALOBJ h)
     soundCameraMoved(c.pos, c.right);
     g.renderer.setLightScale(g_lightScale.x, g_lightScale.y, g_lightScale.z);
     g.renderer.setScreenAdd(cam->lightAdd.x, cam->lightAdd.y, cam->lightAdd.z);
+    screenForRenderer();
     g.renderer.render(*g.ctx->screen, c);
     static const bool traceCamera = getenv("SHOGO_TRACE_CAMERA") != nullptr;
     static int cameraFrames = 0;
@@ -1004,6 +1013,7 @@ DRESULT renderObjects(HLOCALOBJ hCam, HLOCALOBJ *list, int n)
             o->flags |= FLAG_WASDRAWN;
         }
     }
+    screenForRenderer();
     g.renderer.renderDynamic(*g.ctx->screen, cameraFor(cam));
     return LT_OK;
 }
