@@ -317,18 +317,39 @@ bool standingOn(Server &s, EngineObject *o, CollisionInfo *info)
     if (info) memset(info, 0, sizeof(*info));
     if (!o || !s.world || (o->flags & FLAG_GOTHRUWORLD)) return false;
     Vec3 radii = radiiOf(o), from = v3(o->pos), move{0, -2.0f, 0};
+    // Look a little further down for the polygon under the middle.
+    const float below = radii.y + 2.0f + 16.0f;
     Vec3 mn, mx;
-    queryBox(from, from + move, radii, &mn, &mx);
+    queryBox(from, from + Vec3{0, -18.0f, 0}, radii, &mn, &mx);
     std::vector<SweepTri> tris;
     gather(s, o, mn, mx, tris);
     SweepHit h = sweepEllipsoid(tris, radii, from, move);
     if (!h.hit || h.normal.y <= 0.0f) return false;
+    // The plane stood on is the polygon's, not the curve of our ellipsoid
+    // where it touches: on an edge (a slab's lip, the foot of a ramp) that
+    // leans over to 45 degrees, which the game takes for a slope too steep
+    // to stand on, and stops the player. So: the upward polygon straight
+    // below the middle, else the contact.
+    Vec3 normal = h.normal, point = h.point;
+    void *owner = h.owner;
+    uint32_t hpoly = INVALID_HPOLY;
+    float nearest = 2.0f;
+    for (const SweepTri &t : tris) {
+        float f;
+        if (t.tri.n.y > 0.0f && segmentTriangle(t.tri, from, from + Vec3{0, -below, 0}, false, &f) && f < nearest) {
+            nearest = f;
+            normal = t.tri.n;
+            point = t.tri.a;
+            owner = t.owner;
+            hpoly = t.tri.hpoly;
+        }
+    }
     if (info) {
-        info->m_Plane.m_Normal = dv(h.normal);
-        info->m_Plane.m_Dist = dot(h.normal, h.point);
-        auto *owner = static_cast<EngineObject *>(h.owner);
-        info->m_hObject = owner ? toHObject(owner) : nullptr;
-        info->m_hPoly = INVALID_HPOLY;
+        info->m_Plane.m_Normal = dv(normal);
+        info->m_Plane.m_Dist = dot(normal, point);
+        auto *ob = static_cast<EngineObject *>(owner);
+        info->m_hObject = ob ? toHObject(ob) : nullptr;
+        info->m_hPoly = hpoly;
     }
     return true;
 }

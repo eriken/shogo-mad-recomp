@@ -2,7 +2,7 @@
 // (real functions where implemented, logging stubs elsewhere), drives startup
 // and a number of headless frames, and reports which engine calls the game made.
 //
-// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu [--smooth] [--msaa N] [--gpu-scale S] | --gpu-reference] [--time] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
+// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu [--smooth] [--msaa N] [--gpu-scale S] | --gpu-reference] [--time] [--fps N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
 //                    <object.lto.dylib> <cshell.dylib>
 // Run it from the extracted game folder.
 #include "engine/game_host.h"
@@ -83,6 +83,7 @@ int main(int argc, char **argv)
     shogo::GpuSettings gpuSettings;     // --smooth, --msaa N
     float gpuScale = 1;                 // --gpu-scale S: the GPU screen at S times the game's resolution
     bool timing = false;                // --time: how long frames take (after the first 30)
+    int fps = 30;  // game frames per second; each probe frame (1/30 s) runs fps / 30 of them
     bool saveConfig = false;            // write autoexec.cfg at the end, as the game does at exit
     bool movies = false;               // play the intro movies (otherwise skipped, so key timings stay put)
     for (int i = 1; i < argc; ++i) {
@@ -100,6 +101,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--gpu-reference")) gpuReference = true;
         else if (!strcmp(argv[i], "--smooth")) gpuSettings.smoothTextures = true;
         else if (!strcmp(argv[i], "--time")) timing = true;
+        else if (!strcmp(argv[i], "--fps") && i + 1 < argc) fps = std::max(30, atoi(argv[++i]));
         else if (!strcmp(argv[i], "--msaa") && i + 1 < argc) gpuSettings.msaa = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--gpu-scale") && i + 1 < argc) gpuScale = float(atof(argv[++i]));
         else if (!strcmp(argv[i], "--click") && i + 1 < argc) {
@@ -200,7 +202,7 @@ int main(int argc, char **argv)
         for (const MouseMove &m : mouse)
             if (i >= m.from && i < m.to) host.mouseMotion(m.dx, m.dy);
         const auto frameStart = std::chrono::steady_clock::now();
-        host.frame(1.0 / 30.0);
+        for (int sub = 0; sub < fps / 30; ++sub) host.frame(1.0 / double(fps / 30 * 30));
         if (timing && i >= 30) {
             const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - frameStart).count();
             frameMs.push_back(ms);

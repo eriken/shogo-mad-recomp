@@ -145,6 +145,15 @@ cd gamedata && ../build/shogo-probe +runworld "Worlds\02_Quarters" --frames 1700
 Keys are Windows VK codes; hold them (`--hold`) for a few frames, since the game polls its
 commands once a frame and a `--key` press is released within the same frame.
 
+The probe runs 30 game frames a second; `--fps N` runs N (each probe frame becomes N/30 game
+frames), for checking movement at high refresh rates:
+
+```bash
+# Walk forward (W) through Ambush at 240 frames a second; the player should reach z -4900 or so
+cd gamedata && SHOGO_TRACE_PLAYER=1 ../build/shogo-probe +runworld "Worlds\01_Ambush" --frames 1000 --fps 240 \
+    --hold 0x57@300-1000 ../build/object.lto.dylib ../build/cshell.dylib | tail -1
+```
+
 ### Checking the Metal renderer
 
 ```sh
