@@ -57,9 +57,11 @@ CTLineRef makeLine(CTFontRef font, const std::string &text)
     CFStringRef str = CFStringCreateWithBytes(nullptr, (const UInt8 *)text.data(), (CFIndex)text.size(),
                                               kCFStringEncodingWindowsLatin1, false);
     if (!str) str = CFSTR("");
-    const void *keys[] = {kCTFontAttributeName};
-    const void *values[] = {font};
-    CFDictionaryRef attrs = CFDictionaryCreate(nullptr, keys, values, 1, &kCFTypeDictionaryKeyCallBacks,
+    // Glyphs take the context's fill colour (white into the coverage mask);
+    // without this Core Text draws them black, which leaves the mask empty.
+    const void *keys[] = {kCTFontAttributeName, kCTForegroundColorFromContextAttributeName};
+    const void *values[] = {font, kCFBooleanTrue};
+    CFDictionaryRef attrs = CFDictionaryCreate(nullptr, keys, values, 2, &kCFTypeDictionaryKeyCallBacks,
                                                &kCFTypeDictionaryValueCallBacks);
     CFAttributedStringRef as = CFAttributedStringCreate(nullptr, str, attrs);
     CTLineRef line = CTLineCreateWithAttributedString(as);

@@ -4,6 +4,7 @@
 #include "engine/rez_file.h"
 #include "engine/strings.h"
 #include "engine/surfaces.h"
+#include "engine/fonts.h"
 #include "engine/dtx.h"
 #include "engine/render_world.h"
 #include "engine/world_dat.h"
@@ -879,6 +880,20 @@ static void testGameData(const std::string &dir)
 
 
 // A 3x2 8-bit PCX built by hand: RLE run + literal bytes, palette at the end.
+// System fonts draw visible pixels in the requested colour (Core Text once
+// drew every glyph in black into the coverage mask, so no text appeared).
+static void testFontDraw()
+{
+    auto font = shogo::Font::create("Arial", 16, 22, false, false, false);
+    CHECK(font != nullptr);
+    if (!font) return;
+    shogo::Surface s(200, 40);
+    font->draw(s, "Hello", 0, 0, 0x00FF8000, nullptr);
+    size_t lit = 0;
+    for (uint32_t p : s.pixels) lit += p == 0x00FF8000;
+    CHECK(lit > 50);
+}
+
 static void testPCX()
 {
     std::vector<uint8_t> d(128, 0);
@@ -997,6 +1012,7 @@ static void testMessages()
 int main()
 {
     testFormatMessage();
+    testFontDraw();
     testPCX();
     testBlits();
     testRefCounting();
