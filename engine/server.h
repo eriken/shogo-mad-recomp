@@ -115,6 +115,9 @@ public:
     struct Var {
         std::string name, value;
         float number = 0;
+        // A config line with more than one argument ("ModelAdd 0 0 0"): all of
+        // them, so the line can be written back as it was.
+        std::vector<std::string> args;
     };
     Var *find(const std::string &name);
     Var *set(const std::string &name, const std::string &value);
@@ -122,6 +125,8 @@ public:
     // `commands` hook accepts (input bindings...) are passed to it instead.
     void run(const std::string &command);
     std::function<bool(const std::vector<std::string> &)> commands;
+    // Every variable, by lower-case name.
+    const std::map<std::string, std::unique_ptr<Var>> &all() const { return m_vars; }
 
 private:
     std::map<std::string, std::unique_ptr<Var>> m_vars;  // key: lower case

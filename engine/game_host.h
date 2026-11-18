@@ -21,6 +21,8 @@ public:
     ClientShellDE *clientShell = nullptr;
     ServerShellDE *serverShell = nullptr;
     void *serverModule = nullptr;  // object.lto.dylib, for callers that want more exports
+    // "+name value" settings from the command line: run after autoexec.cfg.
+    std::vector<std::string> commandLine;
 
     // Mounts SHOGO.REZ (+ ShogoP.rez) from the working directory and loads the string DLLs.
     bool mountGameData(std::string *err);
@@ -38,6 +40,8 @@ public:
     void mouseWheel(float notches);
     // True while the game wants mouse look (in a world, input enabled).
     bool wantsMouseCapture() const;
+    // True while a menu waits for a mouse button to bind (the keyboard menu).
+    bool wantsMouseButtons() const { return session.input.trackingMouse(); }
     bool quitRequested() const { return client.quitRequested; }
 };
 

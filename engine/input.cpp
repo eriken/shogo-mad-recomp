@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 
 namespace shogo {
@@ -24,15 +25,24 @@ bool Input::parseObject(Device dev, const std::string &obj, bool *axis, int *cod
         *code = atoi(obj.c_str() + 2);
         return true;
     }
-    if (dev == Keyboard) return false;
+    if (dev == Keyboard) {
+        *code = keyCode(obj);
+        return *code != 0;
+    }
     // Mouse objects are named by DirectInput, in the system's language
     // ("X Axis", "Oś X", "Button 0", "Przycisk 0"): go by the last character.
     std::string s = obj;
     while (!s.empty() && isspace((unsigned char)s.back())) s.pop_back();
     if (s.empty()) return false;
+    static const char *const buttons[3] = {"left button", "right button", "middle button"};  // mouseObjectName
+    for (int i = 0; i < 3; ++i)
+        if (lower(s) == buttons[i]) {
+            *code = i;
+            return true;
+        }
     char last = (char)toupper((unsigned char)s.back());
     std::string l = lower(s);
-    if (l == "x-axis" || l == "y-axis" || l == "z-axis") last = (char)toupper((unsigned char)l[0]);
+    if (l == "x-axis" || l == "y-axis" || l == "z-axis" || l == "x axis" || l == "y axis" || l == "z axis") last = (char)toupper((unsigned char)l[0]);
     if (last == 'X' || last == 'Y' || last == 'Z') {
         *axis = true;
         *code = last - 'X';
@@ -51,7 +61,10 @@ void Input::setScale(Device dev, const std::string &obj, float scale)
 {
     bool axis = false;
     int code = 0;
-    if (dev == Mouse && parseObject(dev, obj, &axis, &code) && axis) m_axisScale[code] = scale;
+    if (dev == Mouse && parseObject(dev, obj, &axis, &code) && axis) {
+        m_axisScale[code] = scale;
+        m_scaleObjects[code] = obj;
+    }
 }
 
 bool Input::command(const std::vector<std::string> &a)
@@ -60,16 +73,29 @@ bool Input::command(const std::vector<std::string> &a)
     std::string cmd = lower(a[0]);
     if (cmd == "addaction" && a.size() >= 3) {
         m_actions[lower(a[1])] = atoi(a[2].c_str());
+        m_actionNames[lower(a[1])] = a[1];
         return true;
     }
     if (cmd == "enabledevice") return true;
     if ((cmd == "rangebind" || cmd == "bind") && a.size() >= 4) {
         Device dev = isDevice(a[1], "##mouse") ? Mouse : Keyboard;
-        if (!isDevice(a[1], "##mouse") && !isDevice(a[1], "##keyboard")) return true;  // joysticks: not yet
+        if (a[1].empty()) return true;  // a device GetDeviceName didn't name
         Binding b;
         b.device = dev;
         b.object = a[2];
-        if (!parseObject(dev, a[2], &b.axis, &b.code)) return true;
+        bool parsed = (isDevice(a[1], "##mouse") || isDevice(a[1], "##keyboard")) && parseObject(dev, a[2], &b.axis, &b.code);
+        if (parsed && dev == Keyboard) b.object = "##" + std::to_string(b.code);  // key names are written as scan codes
+        if (!parsed) {
+            // Joysticks, and keys by name ("1"): not read yet, but kept for
+            // autoexec.cfg; the last binding of each object wins.
+            m_otherLines.erase(std::remove_if(m_otherLines.begin(), m_otherLines.end(),
+                                              [&](const std::vector<std::string> &l) {
+                                                  return l.size() >= 3 && lower(l[0]) != "scale" && lower(l[1]) == lower(a[1]) && l[2] == a[2];
+                                              }),
+                               m_otherLines.end());
+            m_otherLines.push_back(a);
+            return true;
+        }
         // Remove what this object was bound to before.
         m_bindings.erase(std::remove_if(m_bindings.begin(), m_bindings.end(),
                                         [&](const Binding &o) { return o.device == dev && o.axis == b.axis && o.code == b.code; }),
@@ -95,14 +121,141 @@ bool Input::command(const std::vector<std::string> &a)
         return true;
     }
     if (cmd == "scale" && a.size() >= 4) {
-        setScale(isDevice(a[1], "##mouse") ? Mouse : Keyboard, a[2], (float)atof(a[3].c_str()));
+        if (isDevice(a[1], "##mouse") || isDevice(a[1], "##keyboard"))
+            setScale(isDevice(a[1], "##mouse") ? Mouse : Keyboard, a[2], (float)atof(a[3].c_str()));
+        else
+            m_otherLines.push_back(a);
         return true;
     }
     if (cmd == "unbindall" || cmd == "clearbindings") {
         m_bindings.clear();
+        m_otherLines.clear();
         return true;
     }
     return false;
+}
+
+namespace {
+std::string quoted(const std::string &s) { return "\"" + s + "\""; }
+}  // namespace
+
+std::string Input::configLines() const
+{
+    std::string out;
+    char buf[64];
+    std::map<int, std::string> nameOf;
+    for (const auto &[key, id] : m_actions) {
+        auto it = m_actionNames.find(key);
+        const std::string &name = it == m_actionNames.end() ? key : it->second;
+        snprintf(buf, sizeof(buf), " %d\n", id);
+        out += "AddAction " + name + buf;
+        nameOf[id] = name;
+    }
+    for (Device dev : {Keyboard, Mouse}) {
+        const char *devName = dev == Keyboard ? "##keyboard" : "##mouse";
+        out += std::string("enabledevice ") + quoted(devName) + "\n";
+        // One rangebind per object, with every action bound to it, in the
+        // order the objects were bound.
+        std::vector<const Binding *> done;
+        for (const Binding &b : m_bindings) {
+            if (b.device != dev) continue;
+            bool seen = false;
+            for (const Binding *d : done) seen |= d->axis == b.axis && d->code == b.code;
+            if (seen) continue;
+            done.push_back(&b);
+            out += std::string("rangebind ") + quoted(devName) + " " + quoted(b.object);
+            for (const Binding &o : m_bindings)
+                if (o.device == dev && o.axis == b.axis && o.code == b.code && nameOf.count(o.action))
+                    out += " 0.000000 0.000000 " + quoted(nameOf[o.action]);
+            out += "\n";
+            if (dev == Mouse && b.axis && m_axisScale.count(b.code)) {
+                auto it = m_scaleObjects.find(b.code);
+                snprintf(buf, sizeof(buf), " %f\n", m_axisScale.at(b.code));
+                out += std::string("scale ") + quoted(devName) + " " + quoted(it == m_scaleObjects.end() ? b.object : it->second) + buf;
+            }
+        }
+    }
+    for (const std::vector<std::string> &line : m_otherLines) {
+        out += line[0];
+        for (size_t i = 1; i < line.size(); ++i) out += " " + quoted(line[i]);
+        out += "\n";
+    }
+    return out;
+}
+
+namespace {
+struct KeyNameEntry {
+    int dik;
+    const char *name;
+};
+// DirectInput's English key names.
+const KeyNameEntry kKeyNames[] = {
+    {0x01, "Esc"}, {0x02, "1"}, {0x03, "2"}, {0x04, "3"}, {0x05, "4"}, {0x06, "5"}, {0x07, "6"}, {0x08, "7"},
+    {0x09, "8"}, {0x0A, "9"}, {0x0B, "0"}, {0x0C, "-"}, {0x0D, "="}, {0x0E, "Backspace"}, {0x0F, "Tab"},
+    {0x10, "Q"}, {0x11, "W"}, {0x12, "E"}, {0x13, "R"}, {0x14, "T"}, {0x15, "Y"}, {0x16, "U"}, {0x17, "I"},
+    {0x18, "O"}, {0x19, "P"}, {0x1A, "["}, {0x1B, "]"}, {0x1C, "Enter"}, {0x1D, "Ctrl"}, {0x1E, "A"},
+    {0x1F, "S"}, {0x20, "D"}, {0x21, "F"}, {0x22, "G"}, {0x23, "H"}, {0x24, "J"}, {0x25, "K"}, {0x26, "L"},
+    {0x27, ";"}, {0x28, "'"}, {0x29, "`"}, {0x2A, "Shift"}, {0x2B, "\\"}, {0x2C, "Z"}, {0x2D, "X"},
+    {0x2E, "C"}, {0x2F, "V"}, {0x30, "B"}, {0x31, "N"}, {0x32, "M"}, {0x33, ","}, {0x34, "."}, {0x35, "/"},
+    {0x36, "Right Shift"}, {0x37, "Num *"}, {0x38, "Alt"}, {0x39, "Space"}, {0x3A, "Caps Lock"},
+    {0x3B, "F1"}, {0x3C, "F2"}, {0x3D, "F3"}, {0x3E, "F4"}, {0x3F, "F5"}, {0x40, "F6"}, {0x41, "F7"},
+    {0x42, "F8"}, {0x43, "F9"}, {0x44, "F10"}, {0x45, "Num Lock"}, {0x46, "Scroll Lock"}, {0x47, "Num 7"},
+    {0x48, "Num 8"}, {0x49, "Num 9"}, {0x4A, "Num -"}, {0x4B, "Num 4"}, {0x4C, "Num 5"}, {0x4D, "Num 6"},
+    {0x4E, "Num +"}, {0x4F, "Num 1"}, {0x50, "Num 2"}, {0x51, "Num 3"}, {0x52, "Num 0"}, {0x53, "Num Del"},
+    {0x57, "F11"}, {0x58, "F12"}, {0x9C, "Num Enter"}, {0x9D, "Right Ctrl"}, {0xB5, "Num /"},
+    {0xB7, "Prnt Scrn"}, {0xB8, "Right Alt"}, {0xC7, "Home"}, {0xC8, "Up"}, {0xC9, "Page Up"}, {0xCB, "Left"},
+    {0xCD, "Right"}, {0xCF, "End"}, {0xD0, "Down"}, {0xD1, "Page Down"}, {0xD2, "Insert"}, {0xD3, "Delete"},
+};
+}  // namespace
+
+std::string Input::keyName(int dik)
+{
+    for (const KeyNameEntry &k : kKeyNames)
+        if (k.dik == dik) return k.name;
+    return "";
+}
+
+int Input::keyCode(const std::string &name)
+{
+    std::string l = lower(name);
+    for (const KeyNameEntry &k : kKeyNames)
+        if (lower(k.name) == l) return k.dik;
+    return 0;
+}
+
+std::string Input::mouseObjectName(bool axis, int code)
+{
+    if (axis) return std::string(1, char('X' + code)) + " Axis";
+    static const char *const buttons[3] = {"Left Button", "Right Button", "Middle Button"};
+    if (code >= 0 && code < 3) return buttons[code];
+    return "Button " + std::to_string(code);
+}
+
+std::vector<Input::Trigger> Input::triggers(bool mouse) const
+{
+    std::map<int, std::string> nameOf;
+    for (const auto &[key, id] : m_actions) {
+        auto it = m_actionNames.find(key);
+        nameOf[id] = it == m_actionNames.end() ? key : it->second;
+    }
+    std::vector<Trigger> out;
+    for (const Binding &b : m_bindings) {
+        if ((b.device == Mouse) != mouse) continue;
+        Trigger *t = nullptr;
+        for (Trigger &o : out)
+            if (o.axis == b.axis && o.code == b.code) t = &o;
+        if (!t) {
+            out.emplace_back();
+            t = &out.back();
+            t->axis = b.axis;
+            t->code = b.code;
+            t->name = mouse ? mouseObjectName(b.axis, b.code) : keyName(b.code);
+            if (t->name.empty()) t->name = "##" + std::to_string(b.code);
+            if (mouse && b.axis && m_axisScale.count(b.code)) t->scale = m_axisScale.at(b.code);
+        }
+        t->actions.push_back({b.action, nameOf.count(b.action) ? nameOf[b.action] : std::string()});
+    }
+    return out;
 }
 
 int Input::actionId(const std::string &name) const

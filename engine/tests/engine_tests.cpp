@@ -23,6 +23,7 @@
 #include "engine/dls.h"
 #include "engine/objects.h"
 #include "engine/server.h"
+#include "engine/input.h"
 #include "engine/stub_support.h"
 
 #include <algorithm>
@@ -971,6 +972,72 @@ static void testConsoleVars()
     CHECK(vars.find("RUNWORLD") && vars.find("runworld")->value == "Worlds\\01_Ambush");
     CHECK(vars.find("gamma") && std::fabs(vars.find("gamma")->number - 1.5f) < 1e-6f);
     CHECK(!vars.find("missing"));
+
+    vars.run("ModelAdd 0.5 0 1");
+    CHECK(vars.find("modeladd") && vars.find("modeladd")->args.size() == 3 && vars.find("modeladd")->args[0] == "0.5");
+    vars.run("ModelAdd 1");
+    CHECK(vars.find("modeladd")->args.empty());
+}
+
+// Bindings written by Input::configLines read back to the same bindings.
+static void testInputConfigLines()
+{
+    shogo::ConsoleVars vars;
+    shogo::Input input;
+    vars.commands = [&](const std::vector<std::string> &a) { return input.command(a); };
+    vars.run("AddAction Fire 1; AddAction Jump 2; AddAction Axis1 -1");
+    vars.run("enabledevice \"##keyboard\"; rangebind \"##keyboard\" \"##57\" 0 0 \"Jump\" 0 0 \"Fire\"");
+    vars.run("rangebind \"##mouse\" \"Button 0\" 0 0 \"Fire\"; rangebind \"##mouse\" \"X Axis\" 0 0 \"Axis1\"");
+    vars.run("scale \"##mouse\" \"X Axis\" 0.004625; rangebind \"##joystick 1\" \"Button 2\" 0 0 \"Jump\"");
+    vars.run("rangebind \"##keyboard\" \"1\" 0 0 \"Fire\"; rangebind \"##keyboard\" \"1\" 0 0 \"Jump\"; rangebind \"\" \"2\" 0 0 \"Jump\"");
+    std::string lines = input.configLines();
+    // Key names are bound (and written) by scan code; the last rangebind wins.
+    CHECK(lines.find("rangebind \"##keyboard\" \"##2\" 0.000000 0.000000 \"Jump\"\n") != std::string::npos);
+    CHECK(lines.find("rangebind \"\"") == std::string::npos);
+    CHECK(lines.find("AddAction Fire 1\n") != std::string::npos);
+    CHECK(lines.find("rangebind \"##keyboard\" \"##57\" 0.000000 0.000000 \"Jump\" 0.000000 0.000000 \"Fire\"") != std::string::npos);
+    CHECK(lines.find("scale \"##mouse\" \"X Axis\" 0.004625") != std::string::npos);
+    CHECK(lines.find("rangebind \"##joystick 1\" \"Button 2\"") != std::string::npos);
+
+    shogo::ConsoleVars vars2;
+    shogo::Input input2;
+    vars2.commands = [&](const std::vector<std::string> &a) { return input2.command(a); };
+    size_t at = 0;
+    while (at < lines.size()) {
+        size_t end = lines.find('\n', at);
+        vars2.run(lines.substr(at, end - at));
+        at = end + 1;
+    }
+    CHECK(input2.configLines() == lines);
+    CHECK(input2.bindingCount() == input.bindingCount() && input.bindingCount() == 5);
+
+    // What the controls menus see.
+    CHECK(shogo::Input::keyName(57) == "Space" && shogo::Input::keyCode("space") == 57 && shogo::Input::keyCode("Nope") == 0);
+    std::vector<shogo::Input::Trigger> keys = input.triggers(false);
+    CHECK(keys.size() == 2 && keys[0].name == "Space" && keys[0].actions.size() == 2 && keys[0].actions[0].second == "Jump");
+    std::vector<shogo::Input::Trigger> mouse = input.triggers(true);
+    CHECK(mouse.size() == 2 && mouse[0].name == "Left Button" && mouse[1].name == "X Axis" && std::fabs(mouse[1].scale - 0.004625f) < 1e-6f);
+
+    // Rebinding by name, as the keyboard menu does.
+    vars.run("rangebind \"##keyboard\" \"Space\" 0 0 \"\"; rangebind \"##keyboard\" \"Up\" 0 0 \"Jump\"");
+    keys = input.triggers(false);
+    CHECK(keys.size() == 2 && keys[1].name == "Up" && keys[1].code == 0xC8);
+
+    // Mouse buttons by name, as the keyboard menu binds them.
+    vars.run("rangebind \"##mouse\" \"Right Button\" 0 0 \"Jump\"");
+    mouse = input.triggers(true);
+    CHECK(mouse.size() == 3 && mouse[2].name == "Right Button" && !mouse[2].axis && mouse[2].code == 1);
+
+    // Tracking: key and button presses only while tracking.
+    input.keyDown(0x1E);
+    input.startTrack(true, false);
+    input.keyDown(0x1E);
+    input.mouseButton(1, true);
+    std::vector<shogo::Input::Tracked> t = input.takeTracked();
+    CHECK(t.size() == 1 && !t[0].mouse && t[0].code == 0x1E);
+    input.endTrack();
+    input.keyDown(0x1F);
+    CHECK(input.takeTracked().empty());
 }
 
 static bool near(const DVector &a, float x, float y, float z) { return std::fabs(a.x - x) + std::fabs(a.y - y) + std::fabs(a.z - z) < 1e-4f; }
@@ -1080,6 +1147,7 @@ int main()
     testRefCounting();
     testParse();
     testConsoleVars();
+    testInputConfigLines();
     testRotations();
     testMessages();
     testCollision();

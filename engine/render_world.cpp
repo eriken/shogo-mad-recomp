@@ -177,6 +177,17 @@ void WorldRenderer::load(const WorldData &world, const ResourceFS &fs)
     m_stats.textures = m_textures.size();
 }
 
+void WorldRenderer::renderDynamic(Surface &dst, const Camera &cam)
+{
+    m_depth.assign(size_t(dst.width) * size_t(dst.height), 0.0f);
+    drawPolys(dst, cam, cam.pos, m_dynamic, false);
+    drawPolys(dst, cam, cam.pos, m_blended, false);
+    drawPolys(dst, cam, cam.pos, m_close, false, 0.05f);
+    m_dynamic.clear();
+    m_blended.clear();
+    m_close.clear();
+}
+
 void WorldRenderer::addDynamic(DrawPoly poly, bool reallyClose)
 {
     Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};

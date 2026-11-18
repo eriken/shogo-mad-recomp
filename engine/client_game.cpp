@@ -137,7 +137,7 @@ char *vGetServerConVarValueString(void *, char *name)
 // ---- input -------------------------------------------------------------------------------
 
 DRESULT apiReadConfigFile(char *name) { return (name && G().readConfigFile(name)) ? LT_OK : LT_ERROR; }
-DRESULT writeConfigFile(char *) { return LT_OK; }  // settings aren't saved yet
+DRESULT apiWriteConfigFile(char *name) { return (name && G().writeConfigFile(name)) ? LT_OK : LT_ERROR; }
 DBOOL isCommandOn(int c)
 {
     bool on = G().input.isCommandOn(c);
@@ -151,6 +151,120 @@ void setInputState(DBOOL on)
     G().input.enabled = on != DFALSE;
     if (getenv("SHOGO_TRACE_INPUT")) printf("[input] SetInputState(%d)\n", on ? 1 : 0);
 }
+// ---- input devices: names, bindings, tracking (the controls menus) ----------------------
+
+const char *deviceName(DDWORD type)
+{
+    return type == DEVICETYPE_KEYBOARD ? "##keyboard" : type == DEVICETYPE_MOUSE ? "##mouse" : nullptr;
+}
+DRESULT getDeviceName(DDWORD type, char *buf, DDWORD size)
+{
+    const char *name = deviceName(type);
+    if (!name || !buf || !size) return LT_ERROR;  // no joystick yet
+    snprintf(buf, size, "%s", name);
+    return LT_OK;
+}
+DRESULT isDeviceEnabled(char *name, DBOOL *enabled)
+{
+    if (enabled) *enabled = name && (!strcasecmp(name, "##keyboard") || !strcasecmp(name, "##mouse"));
+    return LT_OK;
+}
+DeviceBinding *getDeviceBindings(DDWORD type)
+{
+    const char *dev = deviceName(type);
+    if (!dev) return nullptr;
+    DeviceBinding *head = nullptr, **tail = &head;
+    for (const Input::Trigger &t : G().input.triggers(type == DEVICETYPE_MOUSE)) {
+        auto *b = new DeviceBinding{};
+        snprintf(b->strDeviceName, sizeof(b->strDeviceName), "%s", dev);
+        snprintf(b->strTriggerName, sizeof(b->strTriggerName), "%s", t.name.c_str());
+        b->nScale = t.scale;
+        GameAction **atail = &b->pActionHead;
+        for (const auto &[id, name] : t.actions) {
+            auto *a = new GameAction{};
+            a->nActionCode = id;
+            snprintf(a->strActionName, sizeof(a->strActionName), "%s", name.c_str());
+            *atail = a;
+            atail = &a->pNext;
+        }
+        *tail = b;
+        tail = &b->pNext;
+    }
+    return head;
+}
+void freeDeviceBindings(DeviceBinding *b)
+{
+    while (b) {
+        for (GameAction *a = b->pActionHead; a;) {
+            GameAction *next = a->pNext;
+            delete a;
+            a = next;
+        }
+        DeviceBinding *next = b->pNext;
+        delete b;
+        b = next;
+    }
+}
+DeviceObject *getDeviceObjects(DDWORD types)
+{
+    DeviceObject *head = nullptr, **tail = &head;
+    auto add = [&](DDWORD dev, DDWORD kind, const std::string &name) {
+        auto *o = new DeviceObject{};
+        o->m_DeviceType = dev;
+        snprintf(o->m_DeviceName, sizeof(o->m_DeviceName), "%s", deviceName(dev));
+        o->m_ObjectType = kind;
+        snprintf(o->m_ObjectName, sizeof(o->m_ObjectName), "%s", name.c_str());
+        *tail = o;
+        tail = &o->m_pNext;
+    };
+    if (types & DEVICETYPE_MOUSE) {
+        add(DEVICETYPE_MOUSE, CONTROLTYPE_XAXIS, Input::mouseObjectName(true, 0));
+        add(DEVICETYPE_MOUSE, CONTROLTYPE_YAXIS, Input::mouseObjectName(true, 1));
+        add(DEVICETYPE_MOUSE, CONTROLTYPE_ZAXIS, Input::mouseObjectName(true, 2));
+        for (int i = 0; i < 3; ++i) add(DEVICETYPE_MOUSE, CONTROLTYPE_BUTTON, Input::mouseObjectName(false, i));
+    }
+    if (types & DEVICETYPE_KEYBOARD)
+        for (int dik = 1; dik < 256; ++dik)
+            if (!Input::keyName(dik).empty()) add(DEVICETYPE_KEYBOARD, CONTROLTYPE_KEY, Input::keyName(dik));
+    return head;
+}
+void freeDeviceObjects(DeviceObject *o)
+{
+    while (o) {
+        DeviceObject *next = o->m_pNext;
+        delete o;
+        o = next;
+    }
+}
+DRESULT startDeviceTrack(DDWORD types, DDWORD)
+{
+    G().input.startTrack((types & DEVICETYPE_KEYBOARD) != 0, (types & DEVICETYPE_MOUSE) != 0);
+    return LT_OK;
+}
+DRESULT trackDevice(DeviceInput *out, DDWORD *inOut)
+{
+    if (!inOut) return LT_ERROR;
+    DDWORD n = 0;
+    for (const Input::Tracked &t : G().input.takeTracked()) {
+        std::string name = t.mouse ? Input::mouseObjectName(false, t.code) : Input::keyName(t.code);
+        if (name.empty() || !out || n >= *inOut) continue;  // keys without a name can't be bound by name
+        DeviceInput &d = out[n++];
+        memset(&d, 0, sizeof(d));
+        d.m_DeviceType = t.mouse ? DEVICETYPE_MOUSE : DEVICETYPE_KEYBOARD;
+        snprintf(d.m_DeviceName, sizeof(d.m_DeviceName), "%s", deviceName(d.m_DeviceType));
+        d.m_ControlType = t.mouse ? CONTROLTYPE_BUTTON : CONTROLTYPE_KEY;
+        snprintf(d.m_ControlName, sizeof(d.m_ControlName), "%s", name.c_str());
+        d.m_InputValue = 1;
+    }
+    *inOut = n;
+    return LT_OK;
+}
+DRESULT endDeviceTrack()
+{
+    G().input.endTrack();
+    return LT_OK;
+}
+
 DRESULT clearInput()
 {
     G().input.clear();
@@ -446,6 +560,8 @@ std::vector<WorldRenderer::Light> gatherLights(std::vector<bool> *onlyWorld = nu
     std::vector<WorldRenderer::Light> out;
     static const bool off = getenv("SHOGO_NOLIGHTS") != nullptr;
     if (off) return out;
+    // The game's "dynamic lighting" option (Display menu) sets DynamicLight.
+    if (ConsoleVars::Var *v = GameSession::instance ? G().vars.find("DynamicLight") : nullptr; v && !v->value.empty() && v->number == 0) return out;
     for (EngineObject *o : objects().all()) {
         if (o->removed || o->type != OT_LIGHT || !(o->flags & FLAG_VISIBLE) || o->lightRadius <= 0) continue;
         WorldRenderer::Light L;
@@ -635,16 +751,63 @@ void submitModels(GameSession &g)
     }
 }
 
-DRESULT renderCamera(HLOCALOBJ h)
+// A poly grid as triangles: a height field in object space (x and z from -1
+// to 1, height = value / 127 in y), scaled, rotated and moved by the object.
+// Each vertex takes its color from the grid's table (value + 128) and the
+// object's color. The texture (a sprite) is laid out in world units: one
+// texel per xScale / yScale units along the grid, starting at its corner,
+// offset by the pan. That's what the levels' data implies: the same flag
+// sprite on a grid half the size uses half the scale.
+void submitPolyGrid(GameSession &g, const EngineObject *o)
 {
-    GameSession &g = G();
-    EngineObject *cam = O(h);
-    if (!cam || !g.ctx->screen) return LT_ERROR;
-    if (!g.server.world) return LT_OK;
-    if (g.renderedWorld != g.server.world.get()) {
-        g.renderer.load(*g.server.world, *g.ctx->resources);
-        g.renderedWorld = g.server.world.get();
-    }
+    if (o->grid.empty() || o->gridW < 2 || o->gridH < 2 || o->gridColors.size() < 256) return;
+    int tw = 1, th = 1;
+    int tex = o->gridTexture.empty() ? -1 : g.renderer.texture(o->gridTexture, &tw, &th);
+    DVector u, r, f;
+    quatVectors(o->rot, &u, &r, &f);
+    const DVector sc = o->scale;
+    const float xs = o->gridScale[0] != 0 ? o->gridScale[0] : 1, ys = o->gridScale[1] != 0 ? o->gridScale[1] : 1;
+    const uint32_t W = o->gridW, H = o->gridH;
+    std::vector<WorldRenderer::DrawVert> verts(size_t(W) * H);
+    for (uint32_t j = 0; j < H; ++j)
+        for (uint32_t i = 0; i < W; ++i) {
+            int value = (signed char)o->grid[size_t(j) * W + i];
+            float lx = -1 + 2.0f * float(i) / float(W - 1), lz = -1 + 2.0f * float(j) / float(H - 1);
+            float ly = float(value) / 127.0f;
+            DVector p = o->pos + r * (lx * sc.x) + u * (ly * sc.y) + f * (lz * sc.z);
+            const PGColor &c = o->gridColors[size_t(uint8_t(value + 128))];
+            WorldRenderer::DrawVert &v = verts[size_t(j) * W + i];
+            v.p = {p.x, p.y, p.z};
+            v.u = (lx + 1) * sc.x / xs + o->gridPan[0];
+            v.v = (lz + 1) * sc.z / ys + o->gridPan[1];
+            v.r = c.x / 255.0f * o->color[0];
+            v.g = c.y / 255.0f * o->color[1];
+            v.b = c.z / 255.0f * o->color[2];
+        }
+    const float alpha = o->color[3];
+    for (uint32_t j = 0; j + 1 < H; ++j)
+        for (uint32_t i = 0; i + 1 < W; ++i) {
+            const size_t a = size_t(j) * W + i, b = a + 1, c = a + W, d = c + 1;
+            const size_t tris[2][3] = {{a, b, d}, {a, d, c}};
+            for (const auto &t : tris) {
+                WorldRenderer::DrawPoly dp;
+                dp.tex = tex;
+                dp.alpha = alpha;
+                dp.blend = alpha < 0.999f ? WorldRenderer::Alpha : WorldRenderer::Opaque;
+                for (size_t k : t) dp.verts.push_back(verts[k]);
+                g.renderer.addDynamic(std::move(dp), false);
+            }
+        }
+}
+
+void submitPolyGrids(GameSession &g)
+{
+    for (EngineObject *o : objects().all())
+        if (!o->removed && o->type == OT_POLYGRID && (o->flags & FLAG_VISIBLE)) submitPolyGrid(g, o);
+}
+
+Camera cameraFor(const EngineObject *cam)
+{
     Camera c;
     c.pos = {cam->pos.x, cam->pos.y, cam->pos.z};
     c.fovX = cam->fovX;
@@ -655,7 +818,22 @@ DRESULT renderCamera(HLOCALOBJ h)
     c.right = {r.x, r.y, r.z};
     c.up = {u.x, u.y, u.z};
     c.forward = {f.x, f.y, f.z};
+    return c;
+}
+
+DRESULT renderCamera(HLOCALOBJ h)
+{
+    GameSession &g = G();
+    EngineObject *cam = O(h);
+    if (!cam || !g.ctx->screen) return LT_ERROR;
+    if (!g.server.world) return LT_OK;
+    if (g.renderedWorld != g.server.world.get()) {
+        g.renderer.load(*g.server.world, *g.ctx->resources);
+        g.renderedWorld = g.server.world.get();
+    }
+    Camera c = cameraFor(cam);
     submitModels(g);
+    submitPolyGrids(g);
     submitEffects(g.renderer, *g.ctx->resources, c.pos, c.right, c.up);
     g.renderer.setLights(gatherLights());
     g.renderer.setModelPlacements(modelPlacements());
@@ -803,7 +981,24 @@ DRESULT fitPolyGrid(HLOCALOBJ h, DVector *mn, DVector *mx, DVector *pos, DVector
     return LT_OK;
 }
 
-DRESULT renderObjects(HLOCALOBJ, HLOCALOBJ *, int) { return LT_OK; }
+// Draws just these objects (poly grids: the menu background) with the camera,
+// over what the screen already shows.
+DRESULT renderObjects(HLOCALOBJ hCam, HLOCALOBJ *list, int n)
+{
+    GameSession &g = G();
+    EngineObject *cam = O(hCam);
+    if (!cam || !g.ctx->screen || !list) return LT_ERROR;
+    if (!g.renderedWorld) g.renderer.setResources(*g.ctx->resources);
+    for (int i = 0; i < n; ++i) {
+        EngineObject *o = O(list[i]);
+        if (o && !o->removed && o->type == OT_POLYGRID && (o->flags & FLAG_VISIBLE)) {
+            submitPolyGrid(g, o);
+            o->flags |= FLAG_WASDRAWN;
+        }
+    }
+    g.renderer.renderDynamic(*g.ctx->screen, cameraFor(cam));
+    return LT_OK;
+}
 
 #define HOOK(name, fn) shogo_set_virtual_hook("ClientDE::" name, (void *)&fn)
 }  // namespace
@@ -826,11 +1021,20 @@ void GameSession::installClient(ClientDE *c, ClientContext *context)
     vars.commands = [this](const std::vector<std::string> &a) { return input.command(a); };
 
     c->ReadConfigFile = apiReadConfigFile;
-    c->WriteConfigFile = writeConfigFile;
+    c->WriteConfigFile = apiWriteConfigFile;
     c->IsCommandOn = isCommandOn;
     c->GetAxisOffsets = getAxisOffsets;
     c->SetInputState = setInputState;
     c->ClearInput = clearInput;
+    c->GetDeviceName = getDeviceName;
+    c->IsDeviceEnabled = isDeviceEnabled;
+    c->GetDeviceBindings = getDeviceBindings;
+    c->FreeDeviceBindings = freeDeviceBindings;
+    c->GetDeviceObjects = getDeviceObjects;
+    c->FreeDeviceObjects = freeDeviceObjects;
+    c->StartDeviceTrack = startDeviceTrack;
+    c->TrackDevice = trackDevice;
+    c->EndDeviceTrack = endDeviceTrack;
     c->StartGame = startGame;
     c->GetGameMode = getGameMode;
     c->GetLocalClientID = getLocalClientID;
@@ -930,6 +1134,59 @@ bool GameSession::readConfigFile(const std::string &name)
     char line[1024];
     while (fgets(line, sizeof(line), f)) vars.run(line);
     fclose(f);
+    return true;
+}
+
+void GameSession::runCommandLine(const std::vector<std::string> &commands)
+{
+    for (const std::string &c : commands) {
+        std::string name = c.substr(0, c.find_first_of(" \t"));
+        if (!name.empty() && name[0] == '+') name.erase(0, 1);
+        for (char &ch : name) ch = (char)tolower((unsigned char)ch);
+        if (!commandLineVars.count(name)) {
+            ConsoleVars::Var *v = vars.find(name);
+            commandLineVars[name] = v ? std::optional<std::string>(v->value) : std::nullopt;
+        }
+        vars.run(c);
+    }
+}
+
+bool GameSession::writeConfigFile(const std::string &name)
+{
+    // Write over the file the game folder has, whatever its case.
+    std::string path = name;
+    if (DIR *d = opendir(".")) {
+        while (dirent *e = readdir(d))
+            if (strcasecmp(e->d_name, name.c_str()) == 0) path = e->d_name;
+        closedir(d);
+    }
+    auto quoted = [](const std::string &s) { return "\"" + s + "\""; };
+    std::string text;
+    for (const auto &[key, v] : vars.all()) {
+        std::string value = v->value;
+        auto cl = commandLineVars.find(key);
+        if (cl != commandLineVars.end()) {
+            if (!cl->second) continue;
+            value = *cl->second;
+        } else if (!v->args.empty()) {  // "ModelAdd 0 0 0"
+            text += v->name;
+            for (const std::string &a : v->args) text += " " + a;
+            text += "\n";
+            continue;
+        }
+        text += quoted(v->name) + " " + quoted(value) + "\n";
+    }
+    text += input.configLines();
+
+    std::string tmp = path + ".tmp";
+    FILE *f = fopen(tmp.c_str(), "wb");
+    if (!f) return false;
+    bool ok = fwrite(text.data(), 1, text.size(), f) == text.size();
+    ok = fclose(f) == 0 && ok;
+    if (!ok || rename(tmp.c_str(), path.c_str()) != 0) {
+        remove(tmp.c_str());
+        return false;
+    }
     return true;
 }
 

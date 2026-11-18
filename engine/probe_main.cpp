@@ -2,7 +2,7 @@
 // (real functions where implemented, logging stubs elsewhere), drives startup
 // and a number of headless frames, and reports which engine calls the game made.
 //
-// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
+// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
 //                    <object.lto.dylib> <cshell.dylib>
 // Run it from the extracted game folder.
 #include "engine/game_host.h"
@@ -65,6 +65,7 @@ int main(int argc, char **argv)
     const char *audioOut = nullptr;  // records the sound mix to a WAV file
     std::vector<int16_t> audio;
     std::vector<KeyPress> keys;
+    std::vector<KeyPress> clicks;  // mouse button (0 left, 1 right, 2 middle) @ frame
     std::vector<KeyHold> holds;
     struct MouseMove { float dx, dy; int from, to; };
     std::vector<MouseMove> mouse;
@@ -72,6 +73,7 @@ int main(int argc, char **argv)
     std::vector<Trigger> triggers;  // a "TRIGGER" message from the player to named objects
     std::vector<const char *> paths;
     std::vector<std::string> conVars;  // "+name value" pairs, set before the game starts
+    bool saveConfig = false;            // write autoexec.cfg at the end, as the game does at exit
     bool movies = false;               // play the intro movies (otherwise skipped, so key timings stay put)
     for (int i = 1; i < argc; ++i) {
         if (argv[i][0] == '+' && i + 1 < argc) {
@@ -83,7 +85,11 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) screenshot = argv[++i];
         else if (!strcmp(argv[i], "--audio-out") && i + 1 < argc) audioOut = argv[++i];
         else if (!strcmp(argv[i], "--movies")) movies = true;
-        else if (!strcmp(argv[i], "--key") && i + 1 < argc) {
+        else if (!strcmp(argv[i], "--save-config")) saveConfig = true;
+        else if (!strcmp(argv[i], "--click") && i + 1 < argc) {
+            int b = 0, at = 0;
+            if (sscanf(argv[++i], "%i@%d", &b, &at) == 2) clicks.push_back({b, at});
+        } else if (!strcmp(argv[i], "--key") && i + 1 < argc) {
             int vk = 0, at = 0;
             if (sscanf(argv[++i], "%i@%d", &vk, &at) == 2) keys.push_back({vk, at});
         } else if (!strcmp(argv[i], "--hold") && i + 1 < argc) {
@@ -100,7 +106,7 @@ int main(int argc, char **argv)
     }
     if (paths.size() != 2) {
         fprintf(stderr,
-                "usage: %s [+var value ...] [--frames N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME@frame ...] <object.lto.dylib> <cshell.dylib>\n",
+                "usage: %s [+var value ...] [--frames N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME@frame ...] <object.lto.dylib> <cshell.dylib>\n",
                 argv[0]);
         return 2;
     }
@@ -109,7 +115,7 @@ int main(int argc, char **argv)
 
     if (!movies) conVars.insert(conVars.begin(), "DisableMovies \"1\"");
     shogo::GameHost host;
-    for (const std::string &v : conVars) host.session.vars.run(v);
+    host.commandLine = conVars;  // run after autoexec.cfg, as the game does
     std::string err;
     if (!host.mountGameData(&err)) fail(err + "\n(run shogo-probe from the extracted game folder)");
     printf("Mounted %zu resource archive(s); CRES.DLL has %zu strings, SRES.DLL has %zu\n",
@@ -126,6 +132,12 @@ int main(int argc, char **argv)
     printf("Client initialized\n");
 
     for (int i = 0; i < frames && !host.quitRequested(); ++i) {
+        for (const KeyPress &c : clicks)
+            if (c.frame == i) {
+                printf("[frame %d] mouse button %d\n", i, c.vk);
+                host.mouseButton(c.vk, true);
+                host.mouseButton(c.vk, false);
+            }
         for (const KeyPress &k : keys)
             if (k.frame == i) {
                 printf("[frame %d] key 0x%02X\n", i, k.vk);
@@ -182,6 +194,7 @@ int main(int argc, char **argv)
         printf("Audio %s: %s (%.1f s, %zu sounds started, peak %d)\n", ok ? "written" : "FAILED", audioOut,
                audio.size() / 2.0 / shogo::Mixer::kRate, shogo::mixer().started(), peak);
     }
+    if (saveConfig) printf("autoexec.cfg %s\n", host.session.writeConfigFile("autoexec.cfg") ? "saved" : "NOT saved");
     shogo_stub_print_summary(stdout);
     return 0;
 }

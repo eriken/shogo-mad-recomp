@@ -180,7 +180,7 @@ int main(int argc, char **argv)
     int texW = 0, texH = 0;
 
     shogo::GameHost host;
-    for (const std::string &v : conVars) host.session.vars.run(v);
+    host.commandLine = conVars;
     host.client.present = [&](const shogo::Surface &s) {
         if (!texture || texW != s.width || texH != s.height) {
             if (texture) SDL_DestroyTexture(texture);
@@ -227,7 +227,11 @@ int main(int argc, char **argv)
                 // SDL: 1 left, 2 middle, 3 right. DirectInput: 0 left, 1 right, 2 middle.
                 int b = e.button.button == SDL_BUTTON_LEFT ? 0 : e.button.button == SDL_BUTTON_RIGHT ? 1
                       : e.button.button == SDL_BUTTON_MIDDLE ? 2 : e.button.button - 1;
-                if (captured || e.type == SDL_EVENT_MOUSE_BUTTON_UP) host.mouseButton(b, e.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
+                // Clicks reach the game while it has the mouse, or while a menu
+                // waits for a button to bind; otherwise a click is just the
+                // player focusing the window.
+                if (captured || host.wantsMouseButtons() || e.type == SDL_EVENT_MOUSE_BUTTON_UP)
+                    host.mouseButton(b, e.type == SDL_EVENT_MOUSE_BUTTON_DOWN);
                 break;
             }
             case SDL_EVENT_MOUSE_WHEEL:
@@ -259,6 +263,8 @@ int main(int argc, char **argv)
         }
     }
     if (audio) SDL_DestroyAudioStream(audio);
+    // Settings (display, sound, controls, keys) for next time.
+    if (!host.session.writeConfigFile("autoexec.cfg")) fprintf(stderr, "Couldn't save autoexec.cfg\n");
     if (!host.client.quitMessage.empty())
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_INFORMATION, "Shogo", host.client.quitMessage.c_str(), window);
     if (texture) SDL_DestroyTexture(texture);

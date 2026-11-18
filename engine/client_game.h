@@ -8,7 +8,10 @@
 #include "engine/render_world.h"
 #include "engine/server.h"
 
+#include <map>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace shogo {
 
@@ -37,11 +40,20 @@ public:
     // Runs a config file (autoexec.cfg...): from the game folder, or the GOG
     // installer's copy in __support/app.
     bool readConfigFile(const std::string &name);
+    // Saves every console variable and the key bindings to a config file in
+    // the game folder (the game reads autoexec.cfg at start, as the original
+    // engine wrote it at exit). Variables the command line set are saved
+    // with the value they had before it.
+    bool writeConfigFile(const std::string &name);
+    // Runs "+name value" settings from the command line, over the config.
+    void runCommandLine(const std::vector<std::string> &commands);
 
     // Internal state.
     std::vector<int> commandsOn;  // for OnCommandOn / OnCommandOff edges
     const WorldData *renderedWorld = nullptr;
     bool enteredWorld = false;
+    // Command-line variables: lower-case name -> value before (absent: none).
+    std::map<std::string, std::optional<std::string>> commandLineVars;
 };
 
 }  // namespace shogo

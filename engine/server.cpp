@@ -1260,6 +1260,7 @@ ConsoleVars::Var *ConsoleVars::set(const std::string &name, const std::string &v
     }
     v->value = value;
     v->number = (float)atof(value.c_str());
+    v->args.clear();
     return v.get();
 }
 
@@ -1278,7 +1279,10 @@ void ConsoleVars::run(const std::string &command)
             std::vector<std::string> args(argv, argv + n);
             if (args[0].size() > 1 && args[0][0] == '+') args[0] = args[0].substr(1);
             if (!commands || !commands(args)) {
-                if (args.size() >= 2) set(args[0], args[1]);
+                if (args.size() >= 2) {
+                    Var *v = set(args[0], args[1]);
+                    if (args.size() > 2) v->args.assign(args.begin() + 1, args.end());
+                }
             }
         }
         if (!more || !next) break;

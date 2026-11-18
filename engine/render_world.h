@@ -97,6 +97,9 @@ public:
     // render() and then dropped. "Really close" ones (the player's view
     // weapon) are drawn last, over everything. UVs are in texels.
     void addDynamic(DrawPoly poly, bool reallyClose);
+    // Draws just the dynamic polygons queued since the last render, over what
+    // dst already shows, with a fresh depth buffer (RenderObjects).
+    void renderDynamic(Surface &dst, const Camera &cam);
     // A texture (DTX or SPR) for dynamic polygons; -1 if missing. Size in w/h.
     int texture(const std::string &name, int *w = nullptr, int *h = nullptr);
 
