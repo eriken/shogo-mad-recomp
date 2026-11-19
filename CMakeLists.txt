@@ -163,7 +163,7 @@ add_dependencies(shogo shogo_object shogo_cshell)
 add_custom_target(shogo-app ALL
     COMMAND "${CMAKE_COMMAND}" -DAPP=${CMAKE_BINARY_DIR}/Shogo.app -DEXE=$<TARGET_FILE:shogo>
             -DOBJECT=$<TARGET_FILE:shogo_object> -DCSHELL=$<TARGET_FILE:shogo_cshell>
-            -DSDL=$<TARGET_FILE:SDL3::SDL3> -DVERSION=${PROJECT_VERSION}
+            -DSDL=$<TARGET_FILE:SDL3::SDL3> -DVERSION=${PROJECT_VERSION} -DMINOS=${CMAKE_OSX_DEPLOYMENT_TARGET}
             -P "${CMAKE_SOURCE_DIR}/cmake/make_app.cmake"
     DEPENDS shogo shogo_object shogo_cshell "${CMAKE_SOURCE_DIR}/cmake/make_app.cmake"
     COMMENT "Assembling Shogo.app"

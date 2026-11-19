@@ -25,10 +25,10 @@ jobs:
   build:
     runs-on: macos-15  # Apple silicon; Homebrew's SDL3 there needs macOS 15+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Fetch the Shogo v2.2 source (private)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: ${{ env.SHOGO_SOURCE_REPO }}
           ssh-key: ${{ secrets.SHOGO_SOURCE_DEPLOY_KEY }}
@@ -49,7 +49,7 @@ jobs:
 
       - name: Build
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
           cmake --build build -j "$(sysctl -n hw.ncpu)"
 
       - name: Test (without game data)
@@ -63,7 +63,7 @@ jobs:
           tools/make_dmg.sh build "build/$NAME.dmg"
           echo "path=build/$NAME.dmg" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v5
         with:
           name: shogo-dmg
           path: ${{ steps.dmg.outputs.path }}

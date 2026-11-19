@@ -1,5 +1,10 @@
 # Assembles Shogo.app from the built pieces (run by the shogo-app target):
-#   cmake -DAPP=... -DEXE=... -DOBJECT=... -DCSHELL=... -DSDL=... -DVERSION=... -P make_app.cmake
+#   cmake -DAPP=... -DEXE=... -DOBJECT=... -DCSHELL=... -DSDL=... -DVERSION=... [-DMINOS=...] -P make_app.cmake
+# MINOS: the macOS the build targets (CMAKE_OSX_DEPLOYMENT_TARGET), so an older
+# one says the app needs a newer macOS instead of failing to load it.
+if(NOT MINOS)
+    set(MINOS 13.0)
+endif()
 # The app holds the engine and our compiled build of Monolith's game code
 # (a "variation" under the source licence); never the game's data, which the
 # launcher imports from the player's own GOG installer.
@@ -29,7 +34,7 @@ file(WRITE "${APP}/Contents/Info.plist" "<?xml version=\"1.0\" encoding=\"UTF-8\
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleVersion</key><string>${VERSION}</string>
-<key>LSMinimumSystemVersion</key><string>13.0</string>
+<key>LSMinimumSystemVersion</key><string>${MINOS}</string>
 <key>NSHighResolutionCapable</key><true/>
 <key>LSApplicationCategoryType</key><string>public.app-category.action-games</string>
 </dict></plist>
