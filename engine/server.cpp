@@ -1217,7 +1217,16 @@ void Server::update(double dt)
     }
     for (EngineObject *o : movers) {
         if (o->magic != EngineObject::kMagic || o->removed) continue;
-        DVector off = integrateMotion(*this, o, (float)dt);
+        // Friction on the ground (SetFrictionCoefficient): the coefficient times
+        // gravity, as for a block on a floor. Our reading; the engine's own model
+        // isn't known. Without it a dropped weapon keeps the sideways
+        // acceleration it was spawned with and slides across the level for ever.
+        float groundFriction = 0.0f;
+        if ((o->flags & FLAG_GRAVITY) && o->friction > 0.0f &&
+            (o->velocity.x != 0 || o->velocity.z != 0 || o->accel.x != 0 || o->accel.z != 0) &&
+            standingOn(*this, o, nullptr))
+            groundFriction = o->friction * std::fabs(globalForce.y);
+        DVector off = integrateMotion(*this, o, (float)dt, groundFriction);
         if (off.x == 0 && off.y == 0 && off.z == 0) continue;
         moveObject(*this, o, DVector(o->pos.x + off.x, o->pos.y + off.y, o->pos.z + off.z), false);
     }

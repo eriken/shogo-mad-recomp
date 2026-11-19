@@ -17,7 +17,9 @@ class Server;
 void moveObject(Server &server, EngineObject *o, const DVector &target, bool teleport);
 
 // Integrates velocity, acceleration and gravity over dt; returns the offset to apply.
-DVector integrateMotion(Server &server, EngineObject *o, float dt);
+// groundFriction > 0 (units/s^2): the object rests on the ground, and its sideways
+// speed (after this frame's acceleration) drops by that much per second, to zero.
+DVector integrateMotion(Server &server, EngineObject *o, float dt, float groundFriction = 0.0f);
 
 // What the object rests on (a short sweep downwards).
 bool standingOn(Server &server, EngineObject *o, CollisionInfo *info);
