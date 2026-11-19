@@ -67,7 +67,7 @@ struct FU {
     float4 lightScale;
     float4 atlasInv;  // 1 / atlas w, h; light count; smooth textures
     float4 pan;       // sky shadow: x offset, z offset, 1 / x scale, 1 / z scale (texels)
-    float4 panInv;    // 1 / its w, h; on
+    float4 panInv;    // 1 / its w, h; on; strength
     Light lights[64];
 };
 
@@ -106,7 +106,7 @@ fragment float4 fs_world(VOut in [[stage_in]], constant FU &u [[buffer(0)]],
     }
     if ((flags & kPanSky) && u.panInv.z > 0) {
         float2 t = float2(in.world.x, in.world.z) * u.pan.zw + u.pan.xy;
-        light *= panTex.sample(panSampler, t * u.panInv.xy).r;
+        light *= 1.0 - u.panInv.w + u.panInv.w * panTex.sample(panSampler, t * u.panInv.xy).r;
     }
     if (in.lit > 0) {
         light *= u.lightScale.rgb;
@@ -192,7 +192,7 @@ struct FragUniforms {
     float lightScale[4];
     float atlasInv[4];  // 1 / atlas w, h; light count
     float pan[4];       // sky shadow: offsets, 1 / scales
-    float panInv[4];    // 1 / its size; on
+    float panInv[4];    // 1 / its size; on; strength
     GpuLight lights[kMaxLights];
 };
 
@@ -859,6 +859,7 @@ void GpuBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &pass)
         fu.panInv[0] = 1.0f / float(t.w);
         fu.panInv[1] = 1.0f / float(t.h);
         fu.panInv[2] = pan ? 1.0f : 0.0f;
+        fu.panInv[3] = kSkyPanStrength;
     }
 
     if (m_msaa && !m_msaaReady) copyBackground();

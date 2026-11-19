@@ -225,7 +225,7 @@ void SoftwareBackend::draw(const std::vector<DrawPoly> &polys, const DrawPass &p
                         float tu = su - fu, tv = sv - fv;
                         float top = red(i0, j0) + (red(i1, j0) - red(i0, j0)) * tu;
                         float bot = red(i0, j1) + (red(i1, j1) - red(i0, j1)) * tu;
-                        float s = (top + (bot - top) * tv) * (1.0f / 255.0f);
+                        float s = 1.0f - kSkyPanStrength + kSkyPanStrength * (top + (bot - top) * tv) * (1.0f / 255.0f);
                         r *= s;
                         g *= s;
                         b *= s;

@@ -52,15 +52,17 @@ public:
     // Added to every pixel of the view after drawing (SetCameraLightAdd), 0..1.
     void setScreenAdd(float r, float g, float b) { m_screenAdd[0] = r; m_screenAdd[1] = g; m_screenAdd[2] = b; }
     // The panning sky shadow for the next render(): a texture (from texture(),
-    // -1 for none) over the surfaces that take it, scrolled by the offsets (in
-    // texels) and spread over scale world units per texel.
+    // -1 for none) over the surfaces that take it, spread over scale world units
+    // per texel and scrolled by the offsets, in world units like the positions
+    // they're added to (our reading: in texels, Shogo's 32 a second would sweep
+    // the shadows across the ground at over 300 units a second).
     void setSkyPan(int tex, float xOffset, float zOffset, float xScale, float zScale)
     {
         m_panTex = tex;
-        m_pan[0] = xOffset;
-        m_pan[1] = zOffset;
         m_pan[2] = xScale != 0 ? 1.0f / xScale : 1.0f;
         m_pan[3] = zScale != 0 ? 1.0f / zScale : 1.0f;
+        m_pan[0] = xOffset * m_pan[2];
+        m_pan[1] = zOffset * m_pan[3];
     }
 
     // Builds draw lists from a parsed world; textures come from fs.

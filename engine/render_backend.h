@@ -28,6 +28,12 @@ enum : uint32_t {
     kSurfPanSky = 0x8000,  // takes the panning sky shadow (outdoor surfaces)
 };
 
+// How much of the sky shadow reaches the light: light * (1 - k + k * texel).
+// Shogo's cloud texture runs from 0.37 to 1 (0.58 on average); at full strength
+// it halved the light outdoors, in drifting blotches, on levels lit without it.
+// Our choice, not the engine's.
+constexpr float kSkyPanStrength = 0.5f;
+
 struct Camera {
     Vec3 pos;
     float pitch = 0, yaw = 0, roll = 0;  // radians; LithTech euler order, +pitch looks down
@@ -112,8 +118,8 @@ struct RenderFrame {
     float lightScale[3] = {1, 1, 1};             // multiplies lit polygons' light
     // The panning sky shadow (SetGlobalPanTexture/Info): kSurfPanSky polygons'
     // baked light is multiplied by this texture (its red channel, bilinear,
-    // repeating), laid over the world from above: texel = x * pan[2] + pan[0],
-    // z * pan[3] + pan[1]. -1: none.
+    // repeating, at kSkyPanStrength), laid over the world from above:
+    // texel = x * pan[2] + pan[0], z * pan[3] + pan[1]. -1: none.
     int panTex = -1;
     float pan[4] = {0, 0, 1, 1};
     RenderStats *stats = nullptr;                // drawnPolys, litPolys, lightmaps are counted here
