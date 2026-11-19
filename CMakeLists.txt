@@ -13,9 +13,9 @@ endif()
 # Copy the pristine source into the build tree with our normalizations and patches.
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 set(SHOGO_PREPARED_DIR "${CMAKE_BINARY_DIR}/gamesrc")
-file(GLOB SHOGO_PATCHES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/patches/*.patch")
+file(GLOB SHOGO_PATCHES CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/patches/*.hpatch" "${CMAKE_SOURCE_DIR}/patches/*.patch")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    "${CMAKE_SOURCE_DIR}/tools/prepare_source.py" ${SHOGO_PATCHES})
+    "${CMAKE_SOURCE_DIR}/tools/prepare_source.py" "${CMAKE_SOURCE_DIR}/tools/hpatch.py" ${SHOGO_PATCHES})
 execute_process(
     COMMAND "${Python3_EXECUTABLE}" -I "${CMAKE_SOURCE_DIR}/tools/prepare_source.py"
             "${SHOGO_SOURCE_DIR}" "${CMAKE_SOURCE_DIR}/patches" "${SHOGO_PREPARED_DIR}"

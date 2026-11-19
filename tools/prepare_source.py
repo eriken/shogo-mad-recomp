@@ -5,7 +5,8 @@ modern Clang build on macOS. The pristine source in third_party/ is never modifi
 Steps, in order:
   1. Copy AppHeaders, Shared, ClientShellDLL, ObjectDLL, ClientRes, ServerRes, Misc.
   2. CRLF -> LF, and backslashes -> slashes inside #include lines.
-  3. Apply each patches/*.patch (unified diff, -p1 relative to the copied tree).
+  3. Apply each patches/*.hpatch (hashed patches, tools/hpatch.py), then any
+     patches/*.patch (unified diff, -p1 relative to the copied tree; local only).
 
 Usage: prepare_source.py SRC_DIR PATCH_DIR OUT_DIR
        prepare_source.py SRC_DIR --no-patches OUT_DIR   (baseline for making patches)
@@ -40,16 +41,24 @@ def main():
                         fh.write(data)
                 else:
                     shutil.copyfile(s, t)
-    patches = sorted(p for p in os.listdir(patch_dir) if p.endswith('.patch')) if os.path.isdir(patch_dir) else []
+    names = sorted(os.listdir(patch_dir)) if os.path.isdir(patch_dir) else []
     if patch_dir == '--no-patches':
-        patches = []
+        names = []
+    hashed = [p for p in names if p.endswith('.hpatch')]
+    patches = [p for p in names if p.endswith('.patch')]
+    hpatch = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'hpatch.py')
+    for p in hashed:
+        r = subprocess.run([sys.executable, '-I', hpatch, 'apply', os.path.join(patch_dir, p), out],
+                           capture_output=True, text=True)
+        if r.returncode != 0:
+            sys.exit(f'patch {p} failed:\n{r.stdout}{r.stderr}')
     for p in patches:
         r = subprocess.run(['patch', '-p1', '--forward', '--batch', '--no-backup-if-mismatch', '-d', out,
                             '-i', os.path.abspath(os.path.join(patch_dir, p))], capture_output=True, text=True)
         if r.returncode != 0:
             sys.exit(f'patch {p} failed:\n{r.stdout}{r.stderr}')
-    open(stamp, 'w').write('\n'.join(patches) + '\n')
-    print(f'prepared {out} ({len(patches)} patches)')
+    open(stamp, 'w').write('\n'.join(hashed + patches) + '\n')
+    print(f'prepared {out} ({len(hashed) + len(patches)} patches)')
 
 
 if __name__ == '__main__':

@@ -12,6 +12,6 @@ shogsrc22.zip
 
 .DS_Store
 
-# Our patch to Monolith's game code: its diff context is their source, so it
-# stays local (see README).
-/patches/
+# Ordinary diffs of Monolith's game code quote their source, so they stay
+# local; our changes are kept as patches/*.hpatch, which quote none (see README).
+/patches/*.patch

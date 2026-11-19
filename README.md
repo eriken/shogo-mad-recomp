@@ -179,10 +179,22 @@ A scene passes when at most 0.5% of its 8x8 blocks differ in average colour by m
 
 The pristine source in `third_party/` is never edited. At configure time
 `tools/prepare_source.py` copies it to `build/gamesrc/`, normalizes line endings and
-`#include` paths, and applies `patches/shogo-native.patch`.
+`#include` paths, and applies `patches/shogo-native.hpatch`.
 
 To change game code: edit files under `build/gamesrc/`, then run `tools/update_patch.sh`
 to regenerate the patch **before** re-running CMake (configuring regenerates `build/gamesrc/`).
+
+The patch is a *hashed patch* (`tools/hpatch.py`), so it can live in this repository
+without quoting Monolith's source, which their license doesn't allow sharing. It names
+lines by number and checks them by hash against your own copy of the source, and builds
+each changed line from pieces of the original plus text we wrote; only our own text is in
+the file. `tools/update_patch.sh` refuses to write it if it would hold 24 or more
+characters in a row of the original, and checks that applying it reproduces
+`build/gamesrc/` exactly. To read the changes as an ordinary diff (on your machine only):
+
+```sh
+python3 tools/hpatch.py show patches/shogo-native.hpatch build/gamesrc-baseline
+```
 
 Layers, from least to most invasive:
 
@@ -190,10 +202,9 @@ Layers, from least to most invasive:
   force-included into every game file.
 - `src/game/` — our own native replacements for the few Win32-only glue files
   (multiplayer wizard, `WinUtil`, `KeyFixes`, `CreditsWin`). The originals are left out of the build.
-- `patches/shogo-native.patch` — small source fixes: VC6 for-loop scoping, string-literal
-  `const`, implicit `int`, and 64-bit pointer handling. **Not in this repository yet:** a
-  diff's context lines are Monolith's source, which their license doesn't allow sharing,
-  so a fresh clone can't build the game code until the fixes are published another way.
+- `patches/shogo-native.hpatch` — source fixes: VC6 for-loop scoping, string-literal
+  `const`, implicit `int`, 64-bit pointer handling, and the game-code fixes marked
+  "Native port" (frame-rate independence and the like).
 
 ### 64-bit notes
 
@@ -212,7 +223,8 @@ Layers, from least to most invasive:
 | `tools/is3extract.py` | Extract InstallShield 3 `.Z` archives (used for `shogsrc22.zip`) |
 | `tools/rezlist.py` | List/extract LithTech `.REZ` resource archives |
 | `tools/prepare_source.py` | Copy + normalize + patch the game source into the build tree |
-| `tools/update_patch.sh` | Regenerate `patches/shogo-native.patch` from edits in `build/gamesrc/` |
+| `tools/update_patch.sh` | Regenerate `patches/shogo-native.hpatch` from edits in `build/gamesrc/` |
+| `tools/hpatch.py` | Hashed patches: make, apply, show as a diff, leak check |
 | `tools/fix_forscope.py` | Fix VC6 for-loop variable scoping from Clang error output |
 | `tools/gen_engine_stubs.py` | Generate the stub engine from Clang's AST of the API headers |
 | `tools/render_check.sh` | Diff Metal against the software renderer on every level |
