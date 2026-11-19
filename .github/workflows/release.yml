@@ -1,0 +1,78 @@
+# Builds Shogo.app on macOS and packs it into a .dmg: for a v* tag (attached
+# to a GitHub Release) or when run by hand (kept as a workflow artifact).
+# (Not on every push: a private repository's macOS minutes count ten times.)
+#
+# Monolith's game source isn't in this repository (its licence forbids sharing
+# it), so the build reads the original download, shogo_sourcecode22.zip, from
+# a private repository (SHOGO_SOURCE_REPO) with a read-only deploy key
+# (secret SHOGO_SOURCE_DEPLOY_KEY). The source is only unpacked in the runner's
+# workspace: nothing here uploads it, and the dmg holds only compiled code.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write  # creating the Release for a tag
+
+env:
+  SHOGO_SOURCE_REPO: eriken/shogo-mad-source
+  SHOGO_SOURCE_MD5: 2c13c09931bc803f3af6e6782ec2df80
+
+jobs:
+  build:
+    runs-on: macos-14  # Apple silicon; Homebrew's SDL3 is built for macOS 14+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch the Shogo v2.2 source (private)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SHOGO_SOURCE_REPO }}
+          ssh-key: ${{ secrets.SHOGO_SOURCE_DEPLOY_KEY }}
+          path: _shogo_source
+          persist-credentials: false
+
+      - name: Unpack the source
+        run: |
+          echo "$SHOGO_SOURCE_MD5  _shogo_source/shogo_sourcecode22.zip" | md5sum -c - 2>/dev/null \
+            || [ "$(md5 -q _shogo_source/shogo_sourcecode22.zip)" = "$SHOGO_SOURCE_MD5" ]
+          mkdir -p third_party/shogsrc22/installer
+          unzip -q _shogo_source/shogo_sourcecode22.zip -d third_party/shogsrc22/installer
+          python3 -I tools/is3extract.py third_party/shogsrc22/installer/data.z third_party/shogsrc22/source >/dev/null
+          rm -rf _shogo_source
+
+      - name: Install SDL3
+        run: brew install sdl3
+
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j "$(sysctl -n hw.ncpu)"
+
+      - name: Test (without game data)
+        run: ./build/shogo-engine-tests
+
+      - name: Make the disk image
+        id: dmg
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' build/Shogo.app/Contents/Info.plist)
+          case "$GITHUB_REF" in refs/tags/v*) NAME="Shogo-${GITHUB_REF_NAME#v}" ;; *) NAME="Shogo-$VERSION-$(git rev-parse --short HEAD)" ;; esac
+          tools/make_dmg.sh build "build/$NAME.dmg"
+          echo "path=build/$NAME.dmg" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shogo-dmg
+          path: ${{ steps.dmg.outputs.path }}
+          if-no-files-found: error
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "${{ steps.dmg.outputs.path }}" --title "Shogo $GITHUB_REF_NAME" \
+            --notes "Needs your own copy of Shogo: Mobile Armor Division from GOG: open the app and import GOG's installer. NOT MADE BY OR SUPPORTED BY Monolith Productions. The app isn't notarized yet: the first time, right-click it and choose Open."
