@@ -418,9 +418,14 @@ bool intersectSegment(Server &s, IntersectQuery *q, IntersectInfo *info, bool cl
         if (ignoreNonsolid && !(o->flags & FLAG_SOLID)) continue;
         if (clientSide ? (o->flags & FLAG_CLIENTNONSOLID) != 0 : o->clientOnly) continue;
         if (o->dims.x <= 0 && o->dims.y <= 0 && o->dims.z <= 0) continue;
+        Vec3 d = to - from, c = v3(o->pos), e = v3(o->dims);
+        // A segment that starts inside a box doesn't hit it: the AI looks from
+        // its eye level, inside its own box, and doesn't filter itself out, so
+        // otherwise every sight check would see only the looker.
+        if (std::fabs(from.x - c.x) < e.x && std::fabs(from.y - c.y) < e.y && std::fabs(from.z - c.z) < e.z)
+            continue;
         // Slab test against the object's box.
         float t0 = 0, t1 = 1;
-        Vec3 d = to - from, c = v3(o->pos), e = v3(o->dims);
         Vec3 n{0, 0, 0};
         bool miss = false;
         for (int ax = 0; ax < 3 && !miss; ++ax) {

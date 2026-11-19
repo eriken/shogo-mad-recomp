@@ -634,6 +634,11 @@ std::vector<WorldRenderer::Light> gatherLights(std::vector<bool> *onlyWorld = nu
         L.g = o->lightColor[1];
         L.b = o->lightColor[2];
         L.skipBackfacing = (o->flags & FLAG_DONTLIGHTBACKFACING) != 0;
+        // An AI whose fire key comes after its firing time hands its weapon a zero
+        // aim, which the game normalises to NaN: the projectile and the light that
+        // follows it end up nowhere. NaN passes every range test, so such a light
+        // would reach (and blacken) every polygon; it lights nothing.
+        if (!std::isfinite(L.pos.x + L.pos.y + L.pos.z + L.radius + L.r + L.g + L.b)) continue;
         out.push_back(L);
         if (onlyWorld) onlyWorld->push_back((o->flags & FLAG_ONLYLIGHTWORLD) != 0);
     }
