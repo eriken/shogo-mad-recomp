@@ -28,6 +28,12 @@ struct Message {
     uint32_t id = 0;
     void *target = nullptr;
     std::vector<std::string> strings;  // storage for ReadFromMessageString results
+    // A trigger message is one string that each handler down a class chain reads
+    // for itself: Prop reads it, then hands the same message to its Destructable
+    // aggregate, which reads it again for "Destroy" (the levels rely on that:
+    // strafing ships, flak, scripted crashes). So a string read at the end of
+    // one starts over from the beginning.
+    bool rereadable = false;
 
     void put(const void *p, size_t n) { data.insert(data.end(), (const uint8_t *)p, (const uint8_t *)p + n); }
     bool get(void *p, size_t n)

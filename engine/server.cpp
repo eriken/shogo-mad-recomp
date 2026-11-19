@@ -961,6 +961,7 @@ DDWORD Server::engineMessage(EngineObject *o, DDWORD msg, void *data, float fdat
 DDWORD Server::objectMessage(EngineObject *to, EngineObject *from, DDWORD msg, Message *m)
 {
     if (!to || !to->game || to->removed) return 0;
+    if (m && msg == MID_TRIGGER) m->rereadable = true;
     for (ClassDef *c = to->cls; c; c = c->m_ParentClass)
         if (c->m_ObjectMessageFn)
             return c->m_ObjectMessageFn(to->game, from ? toHObject(from) : nullptr, msg, toReadHandle(m));

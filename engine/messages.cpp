@@ -76,6 +76,7 @@ char *readString(void *, HMESSAGEREAD h)
     static char empty[1] = {0};
     Message *m = R(h);
     if (!m) return empty;
+    if (m->rereadable && m->pos >= m->data.size()) m->pos = 0;
     uint32_t n = m->get<uint32_t>();
     std::string s(std::min<size_t>(n, m->data.size() - m->pos), '\0');
     m->get(s.data(), s.size());
