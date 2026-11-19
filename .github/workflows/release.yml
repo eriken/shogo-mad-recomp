@@ -63,7 +63,7 @@ jobs:
           tools/make_dmg.sh build "build/$NAME.dmg"
           echo "path=build/$NAME.dmg" >> "$GITHUB_OUTPUT"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v7
         with:
           name: shogo-dmg
           path: ${{ steps.dmg.outputs.path }}
