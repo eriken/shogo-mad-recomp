@@ -9,6 +9,7 @@
 
 #include <signal.h>
 #include <spawn.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 
@@ -106,13 +107,18 @@ float paragraph(SDL_Renderer *r, float x, float y, const std::string &s, Color c
 
 // The game's splash screen (SHOGO.REZ: Interface/SPLASH.PCX), from the
 // player's imported data; none before the import.
-SDL_Texture *loadSplash(SDL_Renderer *r, const std::string &dataDir)
+// The game's splash screen (640x480), from the imported data.
+std::optional<Surface> loadSplashImage(const std::string &dataDir)
 {
     ResourceFS fs;
-    if (!fs.addArchive(dataDir + "/SHOGO.REZ")) return nullptr;
+    if (!fs.addArchive(dataDir + "/SHOGO.REZ")) return std::nullopt;
     auto data = fs.read("Interface/SPLASH.PCX");
-    if (!data) return nullptr;
-    std::optional<Surface> img = decodePCX(*data);
+    if (!data) return std::nullopt;
+    return decodePCX(*data);
+}
+SDL_Texture *loadSplash(SDL_Renderer *r, const std::string &dataDir)
+{
+    std::optional<Surface> img = loadSplashImage(dataDir);
     if (!img) return nullptr;
     SDL_Texture *t = SDL_CreateTexture(r, SDL_PIXELFORMAT_XRGB8888, SDL_TEXTUREACCESS_STATIC, img->width, img->height);
     if (t) {
@@ -274,66 +280,60 @@ SDL_Surface *loadDockIcon(const std::string &dataDir)
 
 namespace {
 
-// The launcher's Dock icon, so it isn't mistaken for the running game: the
-// game's icon (or a plain dark tile before the data is imported) with an
-// orange "play" badge, drawn here so the app ships no art of its own.
-SDL_Surface *makeLauncherIcon(SDL_Surface *gameIcon)
+// The launcher's Dock icon, so it isn't mistaken for the game (whose icon is
+// GOG's): a dark tile with the splash screen's red "SHOGO" banner (or the
+// launcher's own "SHOGO" title before the data is imported) over "LAUNCHER".
+// Drawn here from the player's data, so the app ships no art of its own.
+SDL_Surface *makeLauncherIcon(const Surface *splash)
 {
     const int S = 256;
-    SDL_Surface *icon = nullptr;
-    if (gameIcon) icon = SDL_ScaleSurface(gameIcon, S, S, SDL_SCALEMODE_LINEAR);
-    if (icon && icon->format != SDL_PIXELFORMAT_RGBA32) {
-        SDL_Surface *converted = SDL_ConvertSurface(icon, SDL_PIXELFORMAT_RGBA32);
-        SDL_DestroySurface(icon);
-        icon = converted;
-    }
-    if (!icon) {
-        icon = SDL_CreateSurface(S, S, SDL_PIXELFORMAT_RGBA32);
-        if (!icon) return nullptr;
-        SDL_FillSurfaceRect(icon, nullptr, 0);
-    }
-    // The badge sits in the corner over the game's icon, centred on the tile.
-    const float cx = gameIcon ? S * 0.72f : S * 0.5f, cy = cx, r = gameIcon ? S * 0.25f : S * 0.3f, ring = r + S * 0.03f;
-    auto cover = [&](float x, float y, Color &c) {  // what's drawn at (x, y), if anything
-        float dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
-        if (!gameIcon) {  // the tile: a rounded dark square
-            const float m = S * 0.06f, rad = S * 0.18f;
-            float qx = std::max(std::max(m + rad - x, x - (S - m - rad)), 0.0f);
-            float qy = std::max(std::max(m + rad - y, y - (S - m - rad)), 0.0f);
-            if (qx * qx + qy * qy > rad * rad) return false;
-            c = kPanel;
-        }
-        if (d2 > ring * ring) return !gameIcon;
-        c = kBg;
-        if (d2 > r * r) return true;
-        c = kAccent;
-        // The play triangle: (-0.35r, ±0.45r) to (0.5r, 0).
-        float tx = dx / r, ty = dy / r;
-        if (tx >= -0.35f && tx <= 0.5f && std::fabs(ty) <= 0.45f * (0.5f - tx) / 0.85f) c = kText;
-        return true;
+    SDL_Surface *icon = SDL_CreateSurface(S, S, SDL_PIXELFORMAT_RGBA32);
+    if (!icon) return nullptr;
+    SDL_FillSurfaceRect(icon, nullptr, 0);
+    // The tile: a rounded square, smoothed at its corners (4x4 samples).
+    const float m = S * 0.06f, rad = S * 0.18f;
+    auto inside = [&](float x, float y) {
+        float qx = std::max(std::max(m + rad - x, x - (S - m - rad)), 0.0f);
+        float qy = std::max(std::max(m + rad - y, y - (S - m - rad)), 0.0f);
+        return qx * qx + qy * qy <= rad * rad;
     };
-    const int N = 4;  // supersamples per axis, for smooth edges
     for (int y = 0; y < S; ++y) {
         auto *row = static_cast<Uint8 *>(icon->pixels) + size_t(y) * size_t(icon->pitch);
         for (int x = 0; x < S; ++x) {
-            float sr = 0, sg = 0, sb = 0;
             int hits = 0;
-            for (int j = 0; j < N; ++j)
-                for (int i = 0; i < N; ++i) {
-                    Color c{};
-                    if (!cover(x + (i + 0.5f) / N, y + (j + 0.5f) / N, c)) continue;
-                    sr += c.r, sg += c.g, sb += c.b, ++hits;
-                }
-            if (!hits) continue;
+            for (int j = 0; j < 4; ++j)
+                for (int i = 0; i < 4; ++i) hits += inside(x + (i + 0.5f) / 4, y + (j + 0.5f) / 4);
             Uint8 *p = row + x * 4;
-            float a = float(hits) / (N * N), under = p[3] / 255.0f * (1 - a);
-            float out = a + under;
-            p[0] = Uint8((sr / hits * a + p[0] * under) / out);
-            p[1] = Uint8((sg / hits * a + p[1] * under) / out);
-            p[2] = Uint8((sb / hits * a + p[2] * under) / out);
-            p[3] = Uint8(out * 255 + 0.5f);
+            p[0] = kPanel.r, p[1] = kPanel.g, p[2] = kPanel.b, p[3] = Uint8(hits * 255 / 16);
         }
     }
+    SDL_Renderer *r = SDL_CreateSoftwareRenderer(icon);
+    if (!r) return icon;
+    float bottom = S * 0.5f;
+    // The banner: the red box with "SHOGO" and the kanji, top centre of the splash.
+    const SDL_FRect bannerSrc{160, 12, 320, 54};
+    SDL_Texture *t = nullptr;
+    if (splash && splash->width >= 480 && splash->height >= 66) {
+        if (SDL_Surface *img = SDL_CreateSurfaceFrom(splash->width, splash->height, SDL_PIXELFORMAT_XRGB8888,
+                                                     const_cast<uint32_t *>(splash->pixels.data()), splash->width * 4)) {
+            t = SDL_CreateTextureFromSurface(r, img);
+            SDL_DestroySurface(img);
+        }
+    }
+    if (t) {
+        SDL_SetTextureScaleMode(t, SDL_SCALEMODE_LINEAR);
+        float w = S - 2 * m - 24, h = w * bannerSrc.h / bannerSrc.w;
+        SDL_FRect dst{(S - w) / 2, S * 0.5f - h / 2 - 12, w, h};
+        SDL_RenderTexture(r, t, &bannerSrc, &dst);
+        SDL_DestroyTexture(t);
+        bottom = dst.y + dst.h;
+    } else {
+        text(r, (S - 5 * 32) / 2.0f, S * 0.5f - 44, "SHOGO", 4, kAccent);
+        bottom = S * 0.5f - 12;
+    }
+    text(r, (S - 8 * 16) / 2.0f, bottom + 20, "LAUNCHER", 2, kText);
+    SDL_RenderPresent(r);
+    SDL_DestroyRenderer(r);
     return icon;
 }
 
@@ -363,12 +363,12 @@ int runLauncher(const std::string &exe)
     SDL_Texture *splash = nullptr;
     auto loadArt = [&] {  // the splash and the Dock icon, from the imported data once there is some
         if (ready && !splash) splash = loadSplash(renderer, dataDir);
-        SDL_Surface *gameIcon = ready ? loadDockIcon(dataDir) : nullptr;
-        if (SDL_Surface *icon = makeLauncherIcon(gameIcon)) {
+        std::optional<Surface> splashImage = ready ? loadSplashImage(dataDir) : std::nullopt;
+        if (SDL_Surface *icon = makeLauncherIcon(splashImage ? &*splashImage : nullptr)) {
+            if (const char *dump = getenv("SHOGO_LAUNCHER_ICON")) SDL_SaveBMP(icon, dump);  // testing
             SDL_SetWindowIcon(window, icon);
             SDL_DestroySurface(icon);
         }
-        SDL_DestroySurface(gameIcon);
     };
     loadArt();
     if (ready) migrateLauncherSettings(dataDir);
@@ -402,11 +402,15 @@ int runLauncher(const std::string &exe)
                 messageIsError = false;
                 break;
             }
-            std::vector<std::string> args = {exe, "--play"};
+            // The game's own app inside Shogo.app, so it has its own name in
+            // the Dock; this program itself outside the app (development).
+            std::string gamePath = exe.substr(0, exe.rfind('/')) + "/../Helpers/Shogo.app/Contents/MacOS/shogo";
+            if (access(gamePath.c_str(), X_OK) != 0) gamePath = exe;
+            std::vector<std::string> args = {gamePath, "--play"};
             std::vector<char *> argv;
             for (std::string &a : args) argv.push_back(a.data());
             argv.push_back(nullptr);
-            if (posix_spawn(&game, exe.c_str(), nullptr, nullptr, argv.data(), environ) != 0) {
+            if (posix_spawn(&game, args[0].c_str(), nullptr, nullptr, argv.data(), environ) != 0) {
                 game = 0;
                 message = "Shogo couldn't be started.";
                 messageIsError = true;
@@ -436,7 +440,8 @@ int runLauncher(const std::string &exe)
 
     // Testing: SHOGO_LAUNCHER_IMPORT=<installer> starts an import,
     // SHOGO_LAUNCHER_PLAY=1 presses Play once the data is ready, and
-    // SHOGO_LAUNCHER_SHOT=<file.bmp>@<seconds> saves the window then quits.
+    // SHOGO_LAUNCHER_SHOT=<file.bmp>@<seconds> saves the window then quits,
+    // and SHOGO_LAUNCHER_ICON=<file.bmp> saves the Dock icon.
     if (const char *imp = getenv("SHOGO_LAUNCHER_IMPORT")) startImport(imp);
     bool autoPlay = getenv("SHOGO_LAUNCHER_PLAY") != nullptr;
     std::string shotFile;

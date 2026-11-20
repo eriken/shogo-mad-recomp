@@ -145,7 +145,12 @@ int main(int argc, char **argv)
             return 1;
         }
     }
-    std::string objectPath = dir + "object.lto.dylib", cshellPath = dir + "cshell.dylib";
+    // In Shogo.app the game runs from its own app inside it
+    // (Contents/Helpers/Shogo.app), so the Dock tells it from the launcher;
+    // the game modules stay next to the launcher's executable.
+    std::string modules = dir;
+    if (access((modules + "cshell.dylib").c_str(), F_OK) != 0) modules = dir + "../../../../MacOS/";
+    std::string objectPath = modules + "object.lto.dylib", cshellPath = modules + "cshell.dylib";
     std::vector<std::string> conVars;  // "+name value": console variables, e.g. +runworld Worlds\01_Ambush
     for (int i = 1; i < argc; ++i) {
         if (argv[i][0] == '+' && i + 1 < argc) {

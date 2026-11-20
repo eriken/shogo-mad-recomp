@@ -29,8 +29,8 @@ file(WRITE "${APP}/Contents/Info.plist" "<?xml version=\"1.0\" encoding=\"UTF-8\
 <plist version=\"1.0\"><dict>
 <key>CFBundleExecutable</key><string>shogo</string>
 <key>CFBundleIdentifier</key><string>com.eriken.shogo-recomp</string>
-<key>CFBundleName</key><string>Shogo</string>
-<key>CFBundleDisplayName</key><string>Shogo: Mobile Armor Division</string>
+<key>CFBundleName</key><string>Shogo Launcher</string>
+<key>CFBundleDisplayName</key><string>Shogo Launcher</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleVersion</key><string>${VERSION}</string>
@@ -39,6 +39,30 @@ file(WRITE "${APP}/Contents/Info.plist" "<?xml version=\"1.0\" encoding=\"UTF-8\
 <key>LSApplicationCategoryType</key><string>public.app-category.action-games</string>
 </dict></plist>
 ")
+# The game runs from its own app inside this one (Contents/Helpers/Shogo.app):
+# the same program, so the Dock shows it as "Shogo", apart from the launcher.
+# It loads SDL and the game modules from this app.
+set(GAME "${APP}/Contents/Helpers/Shogo.app")
+file(MAKE_DIRECTORY "${GAME}/Contents/MacOS")
+file(COPY_FILE "${APP}/Contents/MacOS/shogo" "${GAME}/Contents/MacOS/shogo")
+execute_process(COMMAND install_name_tool -change "@executable_path/../Frameworks/libSDL3.0.dylib"
+                        "@executable_path/../../../../Frameworks/libSDL3.0.dylib" "${GAME}/Contents/MacOS/shogo")
+file(WRITE "${GAME}/Contents/Info.plist" "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\"><dict>
+<key>CFBundleExecutable</key><string>shogo</string>
+<key>CFBundleIdentifier</key><string>com.eriken.shogo-recomp.game</string>
+<key>CFBundleName</key><string>Shogo</string>
+<key>CFBundleDisplayName</key><string>Shogo</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleShortVersionString</key><string>${VERSION}</string>
+<key>CFBundleVersion</key><string>${VERSION}</string>
+<key>LSMinimumSystemVersion</key><string>${MINOS}</string>
+<key>NSHighResolutionCapable</key><true/>
+<key>LSApplicationCategoryType</key><string>public.app-category.action-games</string>
+</dict></plist>
+")
+
 # Ad-hoc signature (Apple silicon needs one; install_name_tool broke the old).
 execute_process(COMMAND codesign --force --deep -s - "${APP}" RESULT_VARIABLE sign_result OUTPUT_QUIET ERROR_QUIET)
 if(NOT sign_result EQUAL 0)

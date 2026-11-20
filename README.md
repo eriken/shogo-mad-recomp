@@ -26,8 +26,10 @@ resolution), Enhanced and Enhanced 2x (windows 55% and 85% of the display) or Na
 screen); all but Original draw the 3D world at the window's full pixel resolution, while the
 menus and HUD are scaled up; textures are smooth and edges 4x anti-aliased. **intro movies**
 plays or skips the Monolith logo and intro before the menu. They take effect at once (intro movies from
-the next start) and are saved in the game's `autoexec.cfg`. Once the game is imported, the launcher shows the game's splash screen, and its
-Dock icon is GOG's Shogo icon with a play badge; both are read from your imported data at
+the next start) and are saved in the game's `autoexec.cfg`. In the Dock the launcher is **Shogo Launcher** and the game **Shogo** (it runs
+from its own app inside `Shogo.app`, `Contents/Helpers/Shogo.app`). Once the game is imported,
+the launcher shows the game's splash screen, its Dock icon is the splash's red SHOGO banner over
+"LAUNCHER", and the game's is GOG's Shogo icon; all are read from your imported data at
 runtime, never shipped in the app. Importing again replaces the game files but
 keeps saves and your key bindings. Steam's version isn't supported yet.
 
@@ -265,9 +267,9 @@ Layers, from least to most invasive:
 | `engine/movie.*` | Movie playback for `StartVideo`/`UpdateVideo`: pacing, full-screen drawing, the soundtrack |
 | `engine/inno_setup.*` | Reads GOG's Inno Setup installer: offsets, header, file and data entries, LZMA (macOS's liblzma), GOG Galaxy's split, zlib-packed files |
 | `engine/game_import.*` | Imports the game from the installer into Application Support; checks a folder holds a finished import |
-| `engine/launcher.*` | The launcher window (import, Play, the licence notice; splash and Dock icon from the imported data) |
+| `engine/launcher.*` | The launcher window (import, Play, the licence notice; splash and Dock icon from the imported data), and the game's Dock icon |
 | `engine/image_read*` | Decodes PNG/ICO through ImageIO (the Dock icon) |
-| `cmake/make_app.cmake` | Assembles `Shogo.app` (game modules, SDL3, Info.plist, ad-hoc signature) |
+| `cmake/make_app.cmake` | Assembles `Shogo.app` (game modules, SDL3, Info.plist, the game's own app in `Contents/Helpers`, ad-hoc signature) |
 | `engine/riff.h` | RIFF chunk walking for the music formats |
 | `engine/dls.*` | DLS level 1 instrument banks |
 | `engine/music.*` | IMA styles and sections, the DLS synth, the sequencer and playlists, the client's music functions |
