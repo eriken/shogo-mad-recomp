@@ -12,7 +12,9 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -313,6 +315,73 @@ SDL_Surface *loadDockIcon(const std::string &dataDir)
     return nullptr;
 }
 
+namespace {
+
+// The launcher's Dock icon, so it isn't mistaken for the running game: the
+// game's icon (or a plain dark tile before the data is imported) with an
+// orange "play" badge, drawn here so the app ships no art of its own.
+SDL_Surface *makeLauncherIcon(SDL_Surface *gameIcon)
+{
+    const int S = 256;
+    SDL_Surface *icon = nullptr;
+    if (gameIcon) icon = SDL_ScaleSurface(gameIcon, S, S, SDL_SCALEMODE_LINEAR);
+    if (icon && icon->format != SDL_PIXELFORMAT_RGBA32) {
+        SDL_Surface *converted = SDL_ConvertSurface(icon, SDL_PIXELFORMAT_RGBA32);
+        SDL_DestroySurface(icon);
+        icon = converted;
+    }
+    if (!icon) {
+        icon = SDL_CreateSurface(S, S, SDL_PIXELFORMAT_RGBA32);
+        if (!icon) return nullptr;
+        SDL_FillSurfaceRect(icon, nullptr, 0);
+    }
+    // The badge sits in the corner over the game's icon, centred on the tile.
+    const float cx = gameIcon ? S * 0.72f : S * 0.5f, cy = cx, r = gameIcon ? S * 0.25f : S * 0.3f, ring = r + S * 0.03f;
+    auto cover = [&](float x, float y, Color &c) {  // what's drawn at (x, y), if anything
+        float dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
+        if (!gameIcon) {  // the tile: a rounded dark square
+            const float m = S * 0.06f, rad = S * 0.18f;
+            float qx = std::max(std::max(m + rad - x, x - (S - m - rad)), 0.0f);
+            float qy = std::max(std::max(m + rad - y, y - (S - m - rad)), 0.0f);
+            if (qx * qx + qy * qy > rad * rad) return false;
+            c = kPanel;
+        }
+        if (d2 > ring * ring) return !gameIcon;
+        c = kBg;
+        if (d2 > r * r) return true;
+        c = kAccent;
+        // The play triangle: (-0.35r, ±0.45r) to (0.5r, 0).
+        float tx = dx / r, ty = dy / r;
+        if (tx >= -0.35f && tx <= 0.5f && std::fabs(ty) <= 0.45f * (0.5f - tx) / 0.85f) c = kText;
+        return true;
+    };
+    const int N = 4;  // supersamples per axis, for smooth edges
+    for (int y = 0; y < S; ++y) {
+        auto *row = static_cast<Uint8 *>(icon->pixels) + size_t(y) * size_t(icon->pitch);
+        for (int x = 0; x < S; ++x) {
+            float sr = 0, sg = 0, sb = 0;
+            int hits = 0;
+            for (int j = 0; j < N; ++j)
+                for (int i = 0; i < N; ++i) {
+                    Color c{};
+                    if (!cover(x + (i + 0.5f) / N, y + (j + 0.5f) / N, c)) continue;
+                    sr += c.r, sg += c.g, sb += c.b, ++hits;
+                }
+            if (!hits) continue;
+            Uint8 *p = row + x * 4;
+            float a = float(hits) / (N * N), under = p[3] / 255.0f * (1 - a);
+            float out = a + under;
+            p[0] = Uint8((sr / hits * a + p[0] * under) / out);
+            p[1] = Uint8((sg / hits * a + p[1] * under) / out);
+            p[2] = Uint8((sb / hits * a + p[2] * under) / out);
+            p[3] = Uint8(out * 255 + 0.5f);
+        }
+    }
+    return icon;
+}
+
+}  // namespace
+
 int runLauncher(const std::string &exe)
 {
     // SDL blocks the screen saver and display sleep by default, which suits the
@@ -324,7 +393,7 @@ int runLauncher(const std::string &exe)
     }
     SDL_Window *window = nullptr;
     SDL_Renderer *renderer = nullptr;
-    if (!SDL_CreateWindowAndRenderer("Shogo: Mobile Armor Division", kW, kH, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE,
+    if (!SDL_CreateWindowAndRenderer("Shogo: Mobile Armor Division - Launcher", kW, kH, SDL_WINDOW_HIGH_PIXEL_DENSITY | SDL_WINDOW_RESIZABLE,
                                      &window, &renderer)) {
         fprintf(stderr, "SDL window: %s\n", SDL_GetError());
         return 1;
@@ -335,13 +404,14 @@ int runLauncher(const std::string &exe)
     const std::string dataDir = defaultGameDataDir();
     bool ready = hasGameData(dataDir);
     SDL_Texture *splash = nullptr;
-    auto loadArt = [&] {  // from the imported data: the splash and the Dock icon
-        if (!ready) return;
-        if (!splash) splash = loadSplash(renderer, dataDir);
-        if (SDL_Surface *icon = loadDockIcon(dataDir)) {
+    auto loadArt = [&] {  // the splash and the Dock icon, from the imported data once there is some
+        if (ready && !splash) splash = loadSplash(renderer, dataDir);
+        SDL_Surface *gameIcon = ready ? loadDockIcon(dataDir) : nullptr;
+        if (SDL_Surface *icon = makeLauncherIcon(gameIcon)) {
             SDL_SetWindowIcon(window, icon);
             SDL_DestroySurface(icon);
         }
+        SDL_DestroySurface(gameIcon);
     };
     loadArt();
     int selected = ready ? RowPlay : RowImport;
