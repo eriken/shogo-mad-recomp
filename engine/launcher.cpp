@@ -315,6 +315,9 @@ SDL_Surface *loadDockIcon(const std::string &dataDir)
 
 int runLauncher(const std::string &exe)
 {
+    // SDL blocks the screen saver and display sleep by default, which suits the
+    // game but not a launcher left open on the desktop.
+    SDL_SetHint(SDL_HINT_VIDEO_ALLOW_SCREENSAVER, "1");
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
