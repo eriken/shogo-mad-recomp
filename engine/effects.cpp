@@ -389,8 +389,10 @@ void drawSprite(WorldRenderer &r, const ResourceFS &fs, EngineObject *o, const V
     float alpha = o->color[3];
     if (s->translucent) blend = WorldRenderer::Additive;
     else if (alpha < 0.99f) blend = WorldRenderer::Alpha;
+    // Never in the "really close" (view weapon) pass: on sprites that flag bit is
+    // FLAG_SPRITEBIAS, handled above, and the close pass draws over the walls.
     quad(r, c, ax, ay, tex, tw, th, o->color[0], o->color[1], o->color[2], blend, alpha,
-         s->transparent || s->translucent, (o->flags & FLAG_SPRITE_NOZ) != 0, (o->flags & FLAG_REALLYCLOSE) != 0);
+         s->transparent || s->translucent, (o->flags & FLAG_SPRITE_NOZ) != 0, false);
 }
 
 void drawParticles(WorldRenderer &r, const ResourceFS &fs, EngineObject *o, const ParticleSystem &ps,
