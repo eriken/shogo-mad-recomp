@@ -67,6 +67,10 @@ public:
 
     // Messages for the client shell (OnMessage), and special effects (SpecialEffectNotify).
     std::deque<PendingMessage> toClient;
+    // How many of toClient were queued before RunWorld: sent while the world was loading
+    // (a restored game's client data, MID_PLAYER_LOADCLIENT), so the client gets them
+    // before its OnEnterWorld, which reads them.
+    size_t toClientBeforeRun = 0;
     std::deque<std::unique_ptr<Message>> instantEffects;
     // Messages from the client shell, delivered at the start of the next update.
     std::deque<PendingMessage> fromClient;

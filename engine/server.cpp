@@ -1174,6 +1174,7 @@ DRESULT Server::runWorld()
 {
     if (!world) return LT_ERROR;
     worldRunning = true;
+    toClientBeforeRun = toClient.size();
     if (shell && shell->PostStartWorld) shell->PostStartWorld(shell);
     enterClient();
     return LT_OK;

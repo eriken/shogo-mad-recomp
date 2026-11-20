@@ -34,6 +34,8 @@ public:
     void installClient(ClientDE *de, ClientContext *ctx);
     // Runs the server for dt seconds and delivers its messages to the client shell.
     void update(double dt);
+    // Hands the first `count` queued server messages to the client shell.
+    void deliverMessages(size_t count);
 
     static GameSession *instance;
 

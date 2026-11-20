@@ -1293,6 +1293,22 @@ bool GameSession::writeConfigFile(const std::string &name)
     return true;
 }
 
+void GameSession::deliverMessages(size_t count)
+{
+    static bool traceMsgs = getenv("SHOGO_TRACE_MESSAGES") != nullptr;
+    for (; count > 0 && !server.toClient.empty(); --count) {
+        PendingMessage pm = std::move(server.toClient.front());
+        server.toClient.pop_front();
+        if (traceMsgs) {
+            printf("[message] server -> client %d (%zu bytes)", pm.id, pm.msg->data.size());
+            for (size_t i = 0; i < pm.msg->data.size() && i < 200; ++i) printf(" %02x", pm.msg->data[i]);
+            printf("\n");
+        }
+        if (shell->OnMessage) shell->OnMessage(shell, pm.id, toReadHandle(pm.msg.get()));
+        pm.msg->magic = 0;
+    }
+}
+
 void GameSession::update(double dt)
 {
     if (!pendingWorld.empty()) {
@@ -1313,6 +1329,9 @@ void GameSession::update(double dt)
                 gameName.resize(gameName.size() - 4);
             shell->PreLoadWorld(shell, gameName.data());
         }
+        // What the server sent while the world was loading comes first: a restored game's
+        // client data sets the state OnEnterWorld reads (CRiotClientShell::m_bRestoringGame).
+        if (shell) deliverMessages(std::min(server.toClientBeforeRun, server.toClient.size()));
         if (shell && shell->OnEnterWorld) shell->OnEnterWorld(shell);
     }
     if (!shell) return;
@@ -1335,18 +1354,7 @@ void GameSession::update(double dt)
     commandsOn = std::move(now);
 
     // Server -> client messages, in order.
-    while (!server.toClient.empty()) {
-        PendingMessage pm = std::move(server.toClient.front());
-        server.toClient.pop_front();
-        static bool traceMsgs = getenv("SHOGO_TRACE_MESSAGES") != nullptr;
-        if (traceMsgs) {
-            printf("[message] server -> client %d (%zu bytes)", pm.id, pm.msg->data.size());
-            for (size_t i = 0; i < pm.msg->data.size() && i < 200; ++i) printf(" %02x", pm.msg->data[i]);
-            printf("\n");
-        }
-        if (shell->OnMessage) shell->OnMessage(shell, pm.id, toReadHandle(pm.msg.get()));
-        pm.msg->magic = 0;
-    }
+    deliverMessages(server.toClient.size());
     // Objects with new special-effect messages.
     for (EngineObject *o : std::vector<EngineObject *>(objects().all())) {
         if (o->clientOnly || o->removed || o->sfxSent || o->sfx.empty()) continue;
