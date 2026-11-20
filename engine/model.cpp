@@ -721,8 +721,11 @@ void setModelAnimation(HOBJECT h, HMODELANIM a)
     // Setting the animation it's already on doesn't restart it.
     if (o->anim == (int)a) return;
     o->anim = (int)a;
-    // The engine resizes the object to the animation's dims (without collision).
-    if (!(o->clientFlags & CF_DONTSETDIMS)) o->dims = m->anims[a].dims;
+    // The engine resizes a client object to the animation's dims (without collision),
+    // unless it opts out with CF_DONTSETDIMS. Server objects keep their dims: the game
+    // sizes them itself, before it changes the animation (CBaseCharacter::SetAnimation),
+    // and on foot the player is 1.1 times its animation's dims.
+    if (o->clientOnly && !(o->clientFlags & CF_DONTSETDIMS)) o->dims = m->anims[a].dims;
     o->animTime = 0;
     o->animDone = false;
     o->animStarted = false;

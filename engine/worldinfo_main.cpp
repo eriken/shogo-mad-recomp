@@ -4,6 +4,7 @@
 #include "engine/rez_file.h"
 #include "engine/world_dat.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <map>
@@ -62,7 +63,14 @@ int main(int argc, char **argv)
             for (const auto &s : w->models[0].surfaces) flags[s.flags]++;
             for (auto &[f, n] : flags) printf("   surface flags %08x x%d\n", f, n);
             for (const auto &m : w->models) {
-                printf("   model %-24s flags %08x %5zu polys\n", m.name.c_str(), m.flags, m.polys.size());
+                Vec3 pmn{1e30f, 1e30f, 1e30f}, pmx{-1e30f, -1e30f, -1e30f};
+                for (const Vec3 &p : m.points) {
+                    pmn = {std::min(pmn.x, p.x), std::min(pmn.y, p.y), std::min(pmn.z, p.z)};
+                    pmx = {std::max(pmx.x, p.x), std::max(pmx.y, p.y), std::max(pmx.z, p.z)};
+                }
+                printf("   model %-24s flags %08x %5zu polys  box (%g %g %g)-(%g %g %g) translation (%g %g %g) points (%g %g %g)-(%g %g %g)\n",
+                       m.name.c_str(), m.flags, m.polys.size(), m.boxMin.x, m.boxMin.y, m.boxMin.z, m.boxMax.x, m.boxMax.y,
+                       m.boxMax.z, m.translation.x, m.translation.y, m.translation.z, pmn.x, pmn.y, pmn.z, pmx.x, pmx.y, pmx.z);
                 const bool all = getenv("SHOGO_WORLDINFO_ALL") != nullptr;  // the main model's surfaces too
                 if (&m == &w->models[0] && !all) continue;
                 // Each surface of the smaller models: flags, texture, effect.

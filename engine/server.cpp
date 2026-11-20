@@ -1022,6 +1022,11 @@ EngineObject *Server::createObject(ClassDef *cls, ObjectCreateStruct *ocs, float
                     const WorldBsp &b = world->models[i];
                     o->dims = DVector((b.boxMax.x - b.boxMin.x) / 2, (b.boxMax.y - b.boxMin.y) / 2,
                                       (b.boxMax.z - b.boxMin.z) / 2);
+                    // A world model from the world file sits at its geometry's centre (the
+                    // file's translation), not at the editor handle its Pos property names.
+                    // The game relies on it: a self-triggering door spawns its trigger box
+                    // at the door's position.
+                    if (props) o->pos = DVector(b.translation.x, b.translation.y, b.translation.z);
                     break;
                 }
         o->basePos = o->pos;
