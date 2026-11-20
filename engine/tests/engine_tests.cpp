@@ -435,6 +435,21 @@ static void testModels(const shogo::ResourceFS &fs)
     auto c = cat ? shogo::parseModel(*cat, nullptr) : nullptr;
     CHECK(c && c->nodes.size() == 4 && c->nodes[3].mdVerts.size() == 50 && !c->anims.empty() &&
           c->anims[0].vertexKeys[3].size() == c->anims[0].keys.size() * 50 * 3);
+    // A vertex-animated node's keyframes come first, then its vertices for
+    // every keyframe: read interleaved, the rotations after the first key are
+    // garbage (the Quarters hologram map then never showed).
+    auto map = fs.read("Models/Props/kato_map.abc");
+    auto km = map ? shogo::parseModel(*map, nullptr) : nullptr;
+    CHECK(km && km->nodes.size() == 2 && km->nodes[1].mdVerts.size() == 88 && !km->anims.empty());
+    if (km && !km->anims.empty() && km->anims[0].tracks.size() == 2) {
+        bool unit = true;
+        for (const shogo::NodeKey &k : km->anims[0].tracks[1]) {
+            const DRotation &q = k.rot;
+            float len = q.m_Vec.x * q.m_Vec.x + q.m_Vec.y * q.m_Vec.y + q.m_Vec.z * q.m_Vec.z + q.m_Spin * q.m_Spin;
+            unit = unit && std::fabs(len - 1) < 1e-3f && std::fabs(k.pos.x) < 1e-3f;
+        }
+        CHECK(unit);
+    }
 }
 
 // A wall facing the camera, lit 0.25 by its baked light; a light just in front

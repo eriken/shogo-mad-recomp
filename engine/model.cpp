@@ -309,9 +309,9 @@ std::unique_ptr<ModelInfo> parseModel(const std::vector<uint8_t> &data, std::str
             key.text = r.str();
             a.keys.push_back(std::move(key));
         }
-        // Per node: per keyframe a position, a rotation (x y z w) and the
-        // node's animated vertices (3 bytes each); then the vertex scale and
-        // translation.
+        // Per node: per keyframe a position and a rotation (x y z w); then,
+        // for every keyframe in turn, the node's animated vertices (3 bytes
+        // each); then the vertex scale and translation.
         a.tracks.resize(nNodes);
         a.vertexKeys.resize(nNodes);
         a.vertexScale.resize(nNodes);
@@ -319,7 +319,6 @@ std::unique_ptr<ModelInfo> parseModel(const std::vector<uint8_t> &data, std::str
         for (size_t n = 0; n < nNodes && r.ok; ++n) {
             size_t nv = info->nodes[n].mdVerts.size();
             a.tracks[n].resize(nKeys);
-            if (nv) a.vertexKeys[n].resize((size_t)nKeys * nv * 3);
             for (uint32_t k = 0; k < nKeys && r.ok; ++k) {
                 NodeKey &key = a.tracks[n][k];
                 key.pos = readVec(r);
@@ -328,10 +327,11 @@ std::unique_ptr<ModelInfo> parseModel(const std::vector<uint8_t> &data, std::str
                 key.rot.m_Vec.y = -y;
                 key.rot.m_Vec.z = -z;
                 key.rot.m_Spin = w;
-                if (nv && r.need(nv * 3)) {
-                    memcpy(&a.vertexKeys[n][(size_t)k * nv * 3], &data[r.p], nv * 3);
-                    r.p += nv * 3;
-                }
+            }
+            const size_t bytes = (size_t)nKeys * nv * 3;
+            if (nv && r.need(bytes)) {
+                a.vertexKeys[n].assign(data.begin() + (ptrdiff_t)r.p, data.begin() + (ptrdiff_t)(r.p + bytes));
+                r.p += bytes;
             }
             a.vertexScale[n] = readVec(r);
             a.vertexTranslate[n] = readVec(r);

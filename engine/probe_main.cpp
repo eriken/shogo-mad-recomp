@@ -3,6 +3,7 @@
 // and a number of headless frames, and reports which engine calls the game made.
 //
 // Usage: shogo-probe [+var value ...] [--frames N] [--size WxH] [--movies] [--save-config] [--gpu [--smooth] [--msaa N] [--gpu-scale S] | --gpu-reference] [--time] [--fps N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
+//                    [--teleport X,Y,Z@frame ...]
 //                    <object.lto.dylib> <cshell.dylib>
 // Run it from the extracted game folder.
 #include "engine/game_host.h"
@@ -74,6 +75,8 @@ int main(int argc, char **argv)
     std::vector<KeyHold> holds;
     struct MouseMove { float dx, dy; int from, to; };
     std::vector<MouseMove> mouse;
+    struct Teleport { DVector pos; int frame; };
+    std::vector<Teleport> teleports;  // puts the player (and its client mover) somewhere
     struct Trigger { std::string name; int frame; };
     std::vector<Trigger> triggers;  // a "TRIGGER" message from the player to named objects
     std::vector<const char *> paths;
@@ -121,6 +124,9 @@ int main(int argc, char **argv)
         } else if (!strcmp(argv[i], "--mouse") && i + 1 < argc) {
             MouseMove m{};
             if (sscanf(argv[++i], "%f,%f@%d-%d", &m.dx, &m.dy, &m.from, &m.to) == 4) mouse.push_back(m);
+        } else if (!strcmp(argv[i], "--teleport") && i + 1 < argc) {
+            Teleport t{};
+            if (sscanf(argv[++i], "%f,%f,%f@%d", &t.pos.x, &t.pos.y, &t.pos.z, &t.frame) == 4) teleports.push_back(t);
         } else if (!strcmp(argv[i], "--trigger") && i + 1 < argc) {
             std::string arg = argv[++i];
             size_t at = arg.rfind('@');
@@ -176,6 +182,12 @@ int main(int argc, char **argv)
 
     std::vector<double> frameMs;
     for (int i = 0; i < frames && !host.quitRequested(); ++i) {
+        for (const Teleport &t : teleports)
+            if (t.frame == i && host.session.server.client.object) {
+                host.session.server.client.object->pos = t.pos;
+                for (shogo::EngineObject *o : shogo::objects().all())
+                    if (o->clientOnly && (o->flags & FLAG_STAIRSTEP)) o->pos = t.pos;
+            }
         for (const KeyPress &c : clicks)
             if (c.frame == i) {
                 printf("[frame %d] mouse button %d\n", i, c.vk);
