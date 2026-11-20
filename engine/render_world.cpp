@@ -230,12 +230,14 @@ void WorldRenderer::load(const WorldData &world, const ResourceFS &fs)
     m_stats = Stats();
     m_fs = &fs;
 
-    // Sky: SkyPointer objects name world models to draw as the sky box (see the
-    // SDK's engineobjects.c); the one with SkyDims also defines the sky box.
+    // Sky: SkyPointer objects name world models to draw as the sky box, and a
+    // DemoSkyWorldModel is one itself, by its own name (see the SDK's
+    // engineobjects.c); the one with SkyDims also defines the sky box.
     std::vector<std::string> skyNames;
     for (const WorldObject &o : world.objects) {
-        if (strcasecmp(o.className.c_str(), "SkyPointer") == 0) {
-            if (const WorldProp *p = o.find("SkyObjectName")) skyNames.push_back(p->string);
+        const bool pointer = strcasecmp(o.className.c_str(), "SkyPointer") == 0;
+        if (pointer || strcasecmp(o.className.c_str(), "DemoSkyWorldModel") == 0) {
+            if (const WorldProp *p = o.find(pointer ? "SkyObjectName" : "Name")) skyNames.push_back(p->string);
             const WorldProp *dims = o.find("SkyDims");
             const WorldProp *pos = o.find("Pos");
             if (dims && pos && dims->vec[0] != 0 && dims->vec[1] != 0 && dims->vec[2] != 0) {
