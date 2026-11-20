@@ -24,6 +24,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -222,8 +223,9 @@ int main(int argc, char **argv)
         SDL_RenderPresent(renderer);
     };
 
-    // Graphics settings (console variables: autoexec.cfg, or the launcher's
-    // command line):
+    // Graphics settings: console variables, set from the game's display menus
+    // (or autoexec.cfg, or "+name value" on the command line) and applied
+    // between frames whenever they change:
     //   RenderBackend "metal" | "software"  Metal: the screen lives on the GPU and
     //                                   the world and 2D drawing go straight in
     //   TextureFilter 1 | 0             smooth (mipmapped) or sharp textures
@@ -231,21 +233,48 @@ int main(int argc, char **argv)
     //   NativeResolution 1 | 0          3D at the window's pixel size, or the
     //                                   game's resolution scaled up
     // SHOGO_RENDERER=gpu|software overrides RenderBackend.
-    bool nativeResolution = false;
-    host.onConfigured = [&] {
+    struct Graphics {
+        bool metal = true, smoothTextures = true, nativeResolution = true;
+        int msaa = 4;
+        bool operator==(const Graphics &) const = default;
+    };
+    auto wanted = [&] {
         auto var = [&](const char *name) { return host.session.vars.find(name); };
         auto number = [&](const char *name, float def) {
             const auto *v = var(name);
             return v && !v->value.empty() ? v->number : def;
         };
+        Graphics g;
         std::string which = var("RenderBackend") ? var("RenderBackend")->value : "metal";
         for (char &c : which) c = char(tolower((unsigned char)c));
         if (const char *e = getenv("SHOGO_RENDERER")) which = strcmp(e, "software") ? "metal" : "software";
-        if (which == "software" || !gpu.device()) return;
+        g.metal = which != "software" && gpu.device();
+        g.smoothTextures = number("TextureFilter", 1) != 0;
+        g.msaa = int(number("MSAA", 4));
+        g.nativeResolution = number("NativeResolution", 1) != 0;
+        return g;
+    };
+    std::optional<Graphics> applied;
+    auto applyGraphics = [&] {
+        Graphics g = wanted();
+        if (applied && *applied == g) return;
+        bool rebuild = !applied || applied->metal != g.metal ||
+                       (g.metal && (applied->smoothTextures != g.smoothTextures || applied->msaa != g.msaa));
+        applied = g;
+        if (!rebuild) return;  // native resolution is read each frame
+        host.session.renderer.setBackend(nullptr);  // the GPU backend goes before its screen
+        host.client.screenTarget = nullptr;
+        host.client.rendererOnScreenTarget = false;
+        host.client.rendererName = "Software";
+        if (!g.metal) {
+            gpuScreen.reset();
+            printf("Renderer: software\n");
+            return;
+        }
         shogo::GpuSettings settings;
-        settings.smoothTextures = number("TextureFilter", 1) != 0;
-        settings.msaa = int(number("MSAA", 4));
-        gpuScreen = shogo::GpuScreen::create(&gpu);
+        settings.smoothTextures = g.smoothTextures;
+        settings.msaa = g.msaa;
+        if (!gpuScreen) gpuScreen = shogo::GpuScreen::create(&gpu);
         auto backend = gpuScreen ? shogo::makeGpuBackend(gpu.device(), gpuScreen.get(), settings) : nullptr;
         if (!backend) {
             gpuScreen.reset();
@@ -256,10 +285,14 @@ int main(int argc, char **argv)
         host.client.screenTarget = gpuScreen.get();
         host.client.rendererOnScreenTarget = true;
         host.client.rendererName = "Metal";
-        nativeResolution = number("NativeResolution", 1) != 0;
         printf("Renderer: Metal (textures %s, MSAA %d, %s resolution)\n", settings.smoothTextures ? "smooth" : "sharp",
-               settings.msaa, nativeResolution ? "native" : "game");
+               settings.msaa, g.nativeResolution ? "native" : "game");
     };
+    if (gpu.device()) host.client.renderers = {"Metal", "Software"};
+    host.client.selectRenderer = [&](const std::string &name) {
+        host.session.vars.set("RenderBackend", name == "Metal" ? "metal" : "software");
+    };
+    host.onConfigured = applyGraphics;
 
     std::string err;
     if (!host.mountGameData(&err) || !host.loadServer(objectPath.c_str(), &err) ||
@@ -316,11 +349,12 @@ int main(int argc, char **argv)
         Uint64 now = SDL_GetTicksNS();
         double dt = double(now - last) / 1e9;
         last = now;
+        applyGraphics();  // what the menus changed last frame
         if (gpuScreen && host.client.screen) {
             // The 3D at the window's pixel size: as many texture pixels per
             // screen pixel as fit.
             float scale = 1;
-            if (nativeResolution) {
+            if (applied && applied->nativeResolution) {
                 int pw = 0, ph = 0;
                 SDL_GetWindowSizeInPixels(window, &pw, &ph);
                 scale = std::min(float(pw) / float(host.client.screen->width),

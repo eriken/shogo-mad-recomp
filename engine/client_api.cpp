@@ -68,13 +68,13 @@ void shutdownWithMessage(char *msg, ...)
 
 // ---- render modes / frame -------------------------------------------------
 
-void fillMode(RMode &m, int w, int h)
+void fillMode(RMode &m, int w, int h, const std::string &renderer)
 {
     memset(&m, 0, sizeof(m));
     m.m_bHardware = DTRUE;
     strcpy(m.m_RenderDLL, "native");
     strcpy(m.m_InternalName, "native");
-    snprintf(m.m_Description, sizeof m.m_Description, "%s", g->rendererName.c_str());
+    snprintf(m.m_Description, sizeof m.m_Description, "%s", renderer.c_str());
     m.m_Width = (DDWORD)w;
     m.m_Height = (DDWORD)h;
     m.m_BitDepth = 16;
@@ -83,13 +83,15 @@ void fillMode(RMode &m, int w, int h)
 RMode *getRenderModes()
 {
     static const int sizes[][2] = {{640, 480}, {800, 600}, {1024, 768}, {1280, 960}};
+    // The display menu groups modes by description: one renderer row per entry.
     RMode *head = nullptr;
-    for (int i = int(sizeof(sizes) / sizeof(sizes[0])) - 1; i >= 0; --i) {
-        RMode *m = new RMode;
-        fillMode(*m, sizes[i][0], sizes[i][1]);
-        m->m_pNext = head;
-        head = m;
-    }
+    for (auto r = g->renderers.rbegin(); r != g->renderers.rend(); ++r)
+        for (int i = int(sizeof(sizes) / sizeof(sizes[0])) - 1; i >= 0; --i) {
+            RMode *m = new RMode;
+            fillMode(*m, sizes[i][0], sizes[i][1], *r);
+            m->m_pNext = head;
+            head = m;
+        }
     return head;
 }
 
@@ -105,13 +107,16 @@ void relinquishRenderModes(RMode *m)
 DRESULT getRenderMode(RMode *m)
 {
     if (!m) return LT_ERROR;
-    fillMode(*m, g->screen->width, g->screen->height);
+    fillMode(*m, g->screen->width, g->screen->height, g->rendererName);
     return LT_OK;
 }
 
 DRESULT setRenderMode(RMode *m)
 {
     if (!m || m->m_Width == 0 || m->m_Height == 0) return LT_ERROR;
+    if (m->m_Description[0] && strcasecmp(m->m_Description, g->rendererName.c_str()) != 0 && g->selectRenderer)
+        for (const std::string &r : g->renderers)
+            if (!strcasecmp(r.c_str(), m->m_Description)) g->selectRenderer(r);
     if ((int)m->m_Width != g->screen->width || (int)m->m_Height != g->screen->height)
         g->screen = std::make_unique<Surface>((int)m->m_Width, (int)m->m_Height);
     return LT_OK;

@@ -19,10 +19,14 @@ Open `build/Shogo.app`. The launcher's **Import from GOG installer...** asks for
 Shogo installer (or drop it on the window): it reads the installer directly, copies the
 English game into `~/Library/Application Support/Shogo Recomp/Game` (about 460 MB, a few
 seconds) and checks every file against the installer's checksums. **Play** then starts the
-game; the launcher stays open while it runs. **Intro movies** (On/Off, remembered in
-`launcher.cfg` next to the game folder) skips the Monolith logo and intro movie before the menu.
-Once the game is imported, the launcher shows the game's splash screen and the Dock shows
-GOG's Shogo icon; both are read from your imported data at runtime, never shipped in the app. Importing again replaces the game files but
+game; the launcher stays open while it runs. Graphics settings are in the game, under
+**Options > Display**: the renderer (Metal or Software) under **change mode**, and rows for
+textures (smooth or sharp), anti-aliasing (off to 8x), 3D resolution (native or the game's own,
+scaled up) and intro movies (the Monolith logo and intro before the menu). They take effect at
+once, apart from intro movies, which apply from the next start, and are saved in the game's
+`autoexec.cfg`. Once the game is imported, the launcher shows the game's splash screen, and its
+Dock icon is GOG's Shogo icon with a play badge; both are read from your imported data at
+runtime, never shipped in the app. Importing again replaces the game files but
 keeps saves and your key bindings. Steam's version isn't supported yet.
 
 ## Status
@@ -160,7 +164,7 @@ cd gamedata && SHOGO_TRACE_PLAYER=1 ../build/shogo-probe +runworld "Worlds\01_Am
 # Screenshot every single-player level (and the main and options menus) with Metal and
 # with the software reference, and diff each pair; report in build/render-check/index.html
 tools/render_check.sh
-# A few levels, later in the level, with the launcher's smooth textures and 4x MSAA
+# A few levels, later in the level, with the default smooth textures and 4x MSAA
 # (differences are then expected: for looking at, not passing)
 tools/render_check.sh --frames 400 --gpu-args "--smooth --msaa 4" 01_Ambush 19_Rendezvous
 # Compare any two screenshots; --diff marks the differences in red
@@ -259,7 +263,7 @@ Layers, from least to most invasive:
 | `engine/movie.*` | Movie playback for `StartVideo`/`UpdateVideo`: pacing, full-screen drawing, the soundtrack |
 | `engine/inno_setup.*` | Reads GOG's Inno Setup installer: offsets, header, file and data entries, LZMA (macOS's liblzma), GOG Galaxy's split, zlib-packed files |
 | `engine/game_import.*` | Imports the game from the installer into Application Support; checks a folder holds a finished import |
-| `engine/launcher.*` | The launcher window (import, Play, intro movies, the licence notice; splash and Dock icon from the imported data) |
+| `engine/launcher.*` | The launcher window (import, Play, the licence notice; splash and Dock icon from the imported data) |
 | `engine/image_read*` | Decodes PNG/ICO through ImageIO (the Dock icon) |
 | `cmake/make_app.cmake` | Assembles `Shogo.app` (game modules, SDL3, Info.plist, ad-hoc signature) |
 | `engine/riff.h` | RIFF chunk walking for the music formats |

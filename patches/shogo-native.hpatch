@@ -241,6 +241,43 @@ file ClientShellDLL/DisplayModeMenu.cpp 0e037be0d04a1bb5
 + ["\t", [623, 6, 11], ";\n"]
 + [[623, 0, 6], [623, 10, null]]
 file ClientShellDLL/DisplayOptionsMenu.cpp bed251ebdb470e6f
+@ 15 0 -
++ ["\n"]
++ ["// Port: rows for the eng", [12, 4, 7], "'s graphics", [29, 19, 29], "(", ["AppHeaders/server_de.h", 444, 49, 67], "the engine\n"]
++ ["// applies as soon as they change) and", ["ClientShellDLL/RiotClientShell.cpp", 6258, 17, 34], ", between the dynamic\n"]
++ ["// lighting row and back.\n"]
++ ["struct POR", [12, 14, 23], "\n"]
++ ["{\n"]
++ ["\tchar*\tszLabel;\n"]
++ ["\tchar*\tszVar;\n"]
++ ["\tint\t\tnValues;\n"]
++ ["\tfloat\taValues[4];\n"]
++ ["\tchar*\taNames[4];\n"]
++ ["\tint\t\tnDefault;\n"]
++ ["};\n"]
++ ["static POR", [12, 14, 23], " s_aPortSettings[] =\n"]
++ ["{\n"]
++ ["\t{ \"textures\",\t\t\"TextureFilter\",\t2, { 1, 0 },\t\t{ \"smooth\", \"sharp\" },\t\t\t0 },\n"]
++ ["\t{ \"anti-aliasing\",\t\"MSAA\",\t\t\t\t4, { 1, 2, 4, 8 },\t{ \"off\", \"2x\", \"4x\", \"8x\" },\t2 },\n"]
++ ["\t{ \"3d resolu", [16, 10, 14], "\",\t\"NativeResolu", [16, 31, 35], "\",\t2, { 1, 0 },\t\t{ \"native\", \"original\" },\t\t0 },\n"]
++ ["\t{ \"intro movies\",\t\"", [16, 1, 4], "ableMovies\",\t2, { 0, 1 },\t\t{ \"on\", \"off\" },\t\t\t\t0 },\n"]
++ ["};\n"]
++ [[12, 0, 8], "PORT_FIRST_ROW\t\t5\n"]
++ [[12, 0, 8], "PORT_ROWS\t\t\t4\n"]
++ [[12, 0, 8], "BACK_ROW\t\t\t(PORT_FIRST_ROW + PORT_ROWS)\n"]
++ ["\n"]
++ ["static int PortSettingIndex", [22, 31, 55], "int nRow)\n"]
++ ["{\n"]
++ ["\tPOR", [12, 14, 23], "& s = s_aPortSettings[nRow];\n"]
++ [["ClientShellDLL/JoystickMenu.cpp", 106, 1, 36], [16, 12, 15], "oleVar (s.szVar);\n"]
++ ["\tif (!hVar) return s.nDefault;\n"]
++ [["ClientShellDLL/NetStart.cpp", 668, 2, 18], [441, 3, 17], ["ClientShellDLL/RiotClientShell.cpp", 653, 38, null]]
++ [[517, 0, 21], "s.nValues; i++)\n"]
++ ["\t{\n"]
++ ["\t\tif (fValue == s.aValues[i]) return i;\n"]
++ ["\t}\n"]
++ ["\treturn s.nDefault;\n"]
++ ["}\n"]
 @ 175 35 5776f66bcb6a94cf
 + [[204, 0, 5], "Port: dynamic lighting replaces", [204, 14, 26], "pre", [204, 26, 29], ", which is always\n"]
 + [[204, 0, 5], "High; it's", [204, 14, 17], "e on", [204, 17, 33], [204, 34, 39], "'s a matter of taste.\n"]
@@ -248,11 +285,65 @@ file ClientShellDLL/DisplayOptionsMenu.cpp bed251ebdb470e6f
 + [[208, 1, 38], [206, 15, 25], "DYNAMICLIGHTING", [208, 39, null]]
 + [[208, 1, 14], "WriteSub", [208, 23, 36], "s(", [208, 39, null]]
 + ["\t\t", [191, 14, 17], "upDynamicLight", [191, 52, 59], "s(", [191, 86, null]]
++ [[172, 0, null]]
++ [[173, 0, 23], ">= PORT_FIRST_ROW", ["ClientShellDLL/JoystickMenu.cpp", 358, 42, 61], "BACK_ROW)\n"]
++ [[174, 0, null]]
++ ["\t\tStepPort", [192, 14, 21], " (m_n", [192, 31, 37], "ion - PORT_FIRST_ROW, -1", [192, 102, null]]
 @ 234 35 b05af801aba10a2a
 + ["\t\tLef", [271, 16, null]]
 + [[225, 0, null]]
-@ 302 6 ca9cc005028c249a
++ [[231, 0, null]]
++ [[232, 0, 23], ">= PORT_FIRST_ROW", ["ClientShellDLL/JoystickMenu.cpp", 358, 42, 61], "BACK_ROW)\n"]
++ [[233, 0, null]]
++ ["\t\tStepPort", [251, 14, 21], " (m_n", [251, 31, 37], "ion - PORT_FIRST_ROW, 1", [251, 102, null]]
+@ 304 1 58b7c67fce85603e
++ [[304, 0, 23], ">= PORT_FIRST_ROW", ["ClientShellDLL/JoystickMenu.cpp", 358, 42, 61], "BACK_ROW)\n"]
+@ 306 3 cbe3777ae4134474
++ ["\t\tRigh", [306, 27, null]]
+@ 310 1 24d763513aec1879
++ [[310, 0, 26], "BACK_ROW)\n"]
 @ 354 2 f338677191a0213a
+@ 369 0 -
++ ["\n"]
++ ["\tfor", [371, 41, 47], [517, 10, 21], "PORT_ROWS; i++)\n"]
++ ["\t{\n"]
++ ["\t", [367, 0, 20], "PORT_FIRST_ROW + i - 1", [367, 21, null]]
++ ["\t\t", [631, 34, 46], "& item =", [368, 55, 58], "Port", [368, 84, 91], "[i];\n"]
++ ["\t", [368, 0, 72], "PORT_FIRST_ROW + i", [368, 73, 76], "item", [368, 91, 112], "item", [368, 127, null]]
++ ["\t}\n"]
++ ["}\n"]
++ ["\n"]
++ [[371, 0, 27], "tepPortSetting", [371, 41, 48], "Row, int nDir)\n"]
++ ["{\n"]
++ ["\tif (!", [368, 1, 12], [77, 17, null]]
++ ["\n"]
++ ["\tPORT_SETTING& s = s_aPort", [368, 84, 91], "s[nRow];\n"]
++ ["\tint nIndex = (PortSettingIndex (", [368, 1, 12], ", nRow)", [368, 154, 157], "nDir + s.nValues) % s.nValues;\n"]
++ [[427, 0, 10], "128];\n"]
++ [[429, 0, 16], "+%s %d\", s.szVar,", [371, 41, 46], ") s.aValues[nIndex]);\n"]
++ [[368, 0, 14], [326, 15, 28], [368, 88, 91], " (str", [368, 182, null]]
++ ["\tSetupPortSetting", [368, 18, 25], "s (nRow", [368, 182, null]]
++ ["}\n"]
++ ["\n"]
++ [[371, 0, 29], "upPortSettingSurfaces", [371, 41, 48], "Row)\n"]
++ ["{\n"]
++ ["\tif (!", [368, 1, 12], [319, 17, 29], [368, 93, 97], [77, 17, null]]
++ ["\n"]
++ [[123, 1, 29], [368, 1, 4], "Riot", [368, 93, 97], [132, 28, 41], [368, 182, null]]
++ [[123, 1, 20], [368, 101, 110], "=", [368, 111, 114], "pRiot", [368, 129, 133], [133, 30, 43], [368, 182, null]]
++ ["\tif (m_sz", [368, 48, 54], [125, 16, null]]
++ ["\t{\n"]
++ [[127, 1, 17], [368, 1, 4], "Riot", [368, 93, 97], [127, 28, 41], [368, 182, null]]
++ ["\t\tpFont", [368, 101, 110], "=", [368, 111, 114], "pRiot", [368, 129, 133], [128, 30, 43], [368, 182, null]]
++ ["\t}\n"]
++ ["\n"]
++ ["\t", [631, 34, 46], "& item =", [368, 55, 58], "Port", [368, 84, 91], "[nRow];\n"]
++ ["\tif (item", [138, 19, 31], [368, 1, 15], "elete", [368, 18, 25], " (item", [368, 91, 101], [368, 182, null]]
++ ["\tif (item", [368, 91, 109], ")", [368, 111, 114], [138, 33, 59], "item", [368, 127, 137], "Selected", [368, 182, null]]
++ ["\n"]
++ ["\tchar* szValue = s_aPortSettings[nRow].aNames[PortSettingIndex (", [368, 1, 12], ", nRow)];\n"]
++ ["\ti", [367, 16, 19], ".h", [367, 25, 33], [141, 25, 61], [367, 50, 53], [430, 65, 94], "zValue);\n"]
++ ["\titem", [368, 91, 110], [141, 26, 61], [368, 124, 127], [142, 72, 102], "szValue", [368, 182, null]]
 @ 394 0 -
 + ["}\n"]
 + ["\n"]
@@ -284,11 +375,19 @@ file ClientShellDLL/DisplayOptionsMenu.cpp bed251ebdb470e6f
 @ 438 3 6b42da8adbdac7c5
 @ 444 1 acab94c70a9b22da
 @ 456 11 6eaad4e0324c0f1d
-@ 486 2 6b391c37f286e6c0
+@ 486 3 d4e8a6f727c0b09c
 + [[486, 0, 94], "\"dynamic lighting\"", [486, 112, null]]
++ [[488, 0, 15], "BACK_ROW", [488, 16, null]]
 @ 492 1 0feb8ac5dba34e02
-@ 497 2 58a52c8be7c50b0d
+@ 497 3 1f49f008d5884bd9
 + [[497, 0, 104], "\"dynamic lighting\"", [497, 122, null]]
++ [[499, 0, 15], "BACK_ROW", [499, 16, null]]
++ [[206, 1, 11], "nRow", [494, 35, 38], "0; nRow < PORT_ROWS; nRow++)\n"]
++ ["\t{\n"]
++ ["\t", [494, 0, 15], "PORT_FIRST_ROW + nRow", [494, 16, 27], [494, 35, 94], "Normal, s_aPortSettings[nRow].szLabel", [494, 122, null]]
++ ["\t", [494, 0, 15], "PORT_FIRST_ROW + nRow", [494, 16, 104], "s_aPortSettings[nRow].szLabel", [494, 122, null]]
++ ["\t\tSetupPort", [501, 7, 14], [501, 54, 61], "s (nRow", [501, 137, null]]
++ ["\t}\n"]
 @ 503 1 d191e6eecd84c012
 + ["\t", [501, 7, 10], "upDynamicLight", [501, 54, 61], "s(", [501, 137, null]]
 @ 512 2 abb23730fa31b7f5
@@ -296,12 +395,33 @@ file ClientShellDLL/DisplayOptionsMenu.cpp bed251ebdb470e6f
 + [[513, 0, 84], "3", [513, 85, 90], "2", [513, 91, null]]
 @ 517 1 2ff0ed6b19e0a773
 + ["\t", [517, 6, 11], ";\n"]
-+ [[517, 0, 6], [517, 10, null]]
-@ 519 0 -
-+ [[519, 0, 6], "i == 5) continue;\t// port: ", ["ClientRes/ClientRes.rc", 844, 29, 46], " are hidden\n"]
++ [[517, 0, 6], [517, 10, 20], "= BACK_ROW", [517, 22, 28], "\t// port: ", ["ClientRes/ClientRes.rc", 844, 29, 46], " are hidden; our rows take their place\n"]
+@ 533 1 37a7c4d299987b5a
++ [[533, 0, 16], "= BACK_ROW", [533, 18, null]]
+@ 545 1 2ff0ed6b19e0a773
++ [[545, 0, 20], "= BACK_ROW", [545, 22, null]]
+@ 568 0 -
++ ["\n"]
++ [[206, 1, 11], "nRow", [566, 26, 29], "0; nRow < PORT_ROWS; nRow++)\n"]
++ ["\t{\n"]
++ ["\t", [565, 0, 7], "Port", [565, 13, 20], "[nRow]", [565, 20, 30], [565, 38, 70], "Port", [565, 76, 83], "[nRow]", [565, 83, 93], [565, 101, null]]
++ ["\t", [565, 0, 7], "Port", [565, 13, 20], "[nRow]", [565, 20, 70], "Port", [565, 76, 83], "[nRow]", [565, 83, null]]
++ ["\t", [566, 0, 3], "Port", [566, 9, 16], "[nRow]", [566, 16, null]]
++ ["\t", [567, 0, 3], "Port", [567, 9, 16], "[nRow]", [567, 16, null]]
++ ["\t}\n"]
+@ 598 0 -
++ ["\tfor", [595, 22, 27], " nRow", [595, 72, 75], "0; nRow < PORT_ROWS; nRow++)\n"]
++ ["\t{\n"]
++ ["\t", [596, 0, 32], "Port", [596, 38, 45], "[nRow]", [596, 45, null]]
++ ["\t", [595, 0, null]]
++ ["\t}\n"]
 file ClientShellDLL/DisplayOptionsMenu.h 8bb839cc26788be9
 @ 48 0 -
 + [[47, 0, 14], "DynamicLight", [47, 29, null]]
++ [[47, 0, 14], "PortSetting", [47, 29, 37], " (int nRow", [47, 38, null]]
++ [[46, 0, 10], "tepPortSetting", [46, 24, 31], "Row, int nDir", [46, 38, null]]
+@ 71 0 -
++ [[68, 0, 17], "Port", [68, 21, 28], "[4];\t// port: the engine's graphics settings and intro movies\n"]
 file ClientShellDLL/GibFX.cpp f8753b57519914a3
 @ 213 1 08750e4eadc2cf48
 + ["\t\t", [213, 7, 12], ";\n"]
