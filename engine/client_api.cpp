@@ -80,19 +80,14 @@ void fillMode(RMode &m, int w, int h, const std::string &renderer)
     m.m_BitDepth = 16;
 }
 
+// The engine picks the resolution (the host's; the display's shape), so the
+// game is offered just that one, and its own choices keep it.
 RMode *getRenderModes()
 {
-    static const int sizes[][2] = {{640, 480}, {800, 600}, {1024, 768}, {1280, 960}};
-    // The display menu groups modes by description: one renderer row per entry.
-    RMode *head = nullptr;
-    for (auto r = g->renderers.rbegin(); r != g->renderers.rend(); ++r)
-        for (int i = int(sizeof(sizes) / sizeof(sizes[0])) - 1; i >= 0; --i) {
-            RMode *m = new RMode;
-            fillMode(*m, sizes[i][0], sizes[i][1], *r);
-            m->m_pNext = head;
-            head = m;
-        }
-    return head;
+    RMode *m = new RMode;
+    fillMode(*m, g->screen->width, g->screen->height, g->rendererName);
+    m->m_pNext = nullptr;
+    return m;
 }
 
 void relinquishRenderModes(RMode *m)
@@ -111,16 +106,7 @@ DRESULT getRenderMode(RMode *m)
     return LT_OK;
 }
 
-DRESULT setRenderMode(RMode *m)
-{
-    if (!m || m->m_Width == 0 || m->m_Height == 0) return LT_ERROR;
-    if (m->m_Description[0] && strcasecmp(m->m_Description, g->rendererName.c_str()) != 0 && g->selectRenderer)
-        for (const std::string &r : g->renderers)
-            if (!strcasecmp(r.c_str(), m->m_Description)) g->selectRenderer(r);
-    if ((int)m->m_Width != g->screen->width || (int)m->m_Height != g->screen->height)
-        g->screen = std::make_unique<Surface>((int)m->m_Width, (int)m->m_Height);
-    return LT_OK;
-}
+DRESULT setRenderMode(RMode *m) { return m ? LT_OK : LT_ERROR; }
 
 // ---- the screen on the GPU ----------------------------------------------------
 

@@ -20,6 +20,7 @@
 #include <unistd.h>
 
 #include <climits>
+#include <cmath>
 #include <cstdlib>
 
 #include <cstdio>
@@ -162,8 +163,13 @@ int main(int argc, char **argv)
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_Window *window = SDL_CreateWindow("Shogo: Mobile Armor Division", 1280, 960,
-                                          SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+    // The game runs at 800 wide and the display's shape, scaled up to the
+    // window (DisplayMode, below, sizes the window; it's shown once sized).
+    SDL_Rect display{0, 0, 1600, 1000};
+    SDL_GetDisplayBounds(SDL_GetPrimaryDisplay(), &display);
+    const int gameW = 800, gameH = std::max(2, int(lround(800.0 * display.h / std::max(1, display.w) / 2)) * 2);
+    SDL_Window *window = SDL_CreateWindow("Shogo: Mobile Armor Division", gameW, gameH,
+                                          SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (!window) {
         fprintf(stderr, "SDL window: %s\n", SDL_GetError());
         return 1;
@@ -223,19 +229,22 @@ int main(int argc, char **argv)
         SDL_RenderPresent(renderer);
     };
 
-    // Graphics settings: console variables, set from the game's display menus
+    // Graphics settings: console variables, set from the game's display menu
     // (or autoexec.cfg, or "+name value" on the command line) and applied
     // between frames whenever they change:
-    //   RenderBackend "metal" | "software"  Metal: the screen lives on the GPU and
-    //                                   the world and 2D drawing go straight in
+    //   DisplayMode 0..3                0 Original: an 800-wide window, 3D at the
+    //                                   game's resolution; 1 Enhanced and 2
+    //                                   Enhanced 2x: windows 55% and 85% of the
+    //                                   display; 3 Native: full screen. 1-3 draw
+    //                                   3D at the window's pixel size.
     //   TextureFilter 1 | 0             smooth (mipmapped) or sharp textures
     //   MSAA 4                          samples per pixel: 1, 2, 4 or 8
-    //   NativeResolution 1 | 0          3D at the window's pixel size, or the
-    //                                   game's resolution scaled up
+    //   RenderBackend "metal" | "software"  for tests: Metal puts the screen on
+    //                                   the GPU and draws the world and 2D there
     // SHOGO_RENDERER=gpu|software overrides RenderBackend.
     struct Graphics {
-        bool metal = true, smoothTextures = true, nativeResolution = true;
-        int msaa = 4;
+        bool metal = true, smoothTextures = true;
+        int msaa = 4, mode = 2;
         bool operator==(const Graphics &) const = default;
     };
     auto wanted = [&] {
@@ -251,8 +260,22 @@ int main(int argc, char **argv)
         g.metal = which != "software" && gpu.device();
         g.smoothTextures = number("TextureFilter", 1) != 0;
         g.msaa = int(number("MSAA", 4));
-        g.nativeResolution = number("NativeResolution", 1) != 0;
+        g.mode = std::clamp(int(number("DisplayMode", 2)), 0, 3);
         return g;
+    };
+    auto applyWindow = [&](int mode) {
+        if (mode == 3) {
+            SDL_SetWindowFullscreen(window, true);
+        } else {
+            static const float kShare[] = {0, 0.55f, 0.85f};
+            int w = mode == 0 ? gameW : int(lround(display.w * kShare[mode]));
+            int h = mode == 0 ? gameH : int(lround(display.h * kShare[mode]));
+            SDL_SetWindowFullscreen(window, false);
+            SDL_SetWindowSize(window, w, h);
+            SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+        }
+        SDL_ShowWindow(window);
+        SDL_SyncWindow(window);
     };
     std::optional<Graphics> applied;
     auto applyGraphics = [&] {
@@ -260,8 +283,9 @@ int main(int argc, char **argv)
         if (applied && *applied == g) return;
         bool rebuild = !applied || applied->metal != g.metal ||
                        (g.metal && (applied->smoothTextures != g.smoothTextures || applied->msaa != g.msaa));
+        if (!applied || applied->mode != g.mode) applyWindow(g.mode);
         applied = g;
-        if (!rebuild) return;  // native resolution is read each frame
+        if (!rebuild) return;
         host.session.renderer.setBackend(nullptr);  // the GPU backend goes before its screen
         host.client.screenTarget = nullptr;
         host.client.rendererOnScreenTarget = false;
@@ -285,18 +309,13 @@ int main(int argc, char **argv)
         host.client.screenTarget = gpuScreen.get();
         host.client.rendererOnScreenTarget = true;
         host.client.rendererName = "Metal";
-        printf("Renderer: Metal (textures %s, MSAA %d, %s resolution)\n", settings.smoothTextures ? "smooth" : "sharp",
-               settings.msaa, g.nativeResolution ? "native" : "game");
-    };
-    if (gpu.device()) host.client.renderers = {"Metal", "Software"};
-    host.client.selectRenderer = [&](const std::string &name) {
-        host.session.vars.set("RenderBackend", name == "Metal" ? "metal" : "software");
+        printf("Renderer: Metal (textures %s, MSAA %d)\n", settings.smoothTextures ? "smooth" : "sharp", settings.msaa);
     };
     host.onConfigured = applyGraphics;
 
     std::string err;
     if (!host.mountGameData(&err) || !host.loadServer(objectPath.c_str(), &err) ||
-        !host.startClient(cshellPath.c_str(), 640, 480, &err)) {
+        !host.startClient(cshellPath.c_str(), gameW, gameH, &err)) {
         fprintf(stderr, "%s\n(run from the extracted game folder, or pass --data <dir>)\n", err.c_str());
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Shogo", err.c_str(), window);
         return 1;
@@ -354,7 +373,7 @@ int main(int argc, char **argv)
             // The 3D at the window's pixel size: as many texture pixels per
             // screen pixel as fit.
             float scale = 1;
-            if (applied && applied->nativeResolution) {
+            if (applied && applied->mode != 0) {
                 int pw = 0, ph = 0;
                 SDL_GetWindowSizeInPixels(window, &pw, &ph);
                 scale = std::min(float(pw) / float(host.client.screen->width),

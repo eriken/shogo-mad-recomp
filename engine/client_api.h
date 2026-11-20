@@ -27,10 +27,6 @@ struct ClientContext {
     ScreenTarget *screenTarget = nullptr;
     bool rendererOnScreenTarget = false;  // the world renderer draws into it directly
     std::string rendererName = "Software";  // shown in the game's display menu
-    // The renderers the display menu offers (each at every resolution), and
-    // what picking another one there does; the host switches between frames.
-    std::vector<std::string> renderers{"Software"};
-    std::function<void(const std::string &)> selectRenderer;
     unsigned framesPresented = 0;
 
     // Set when the game asks the engine to shut down.

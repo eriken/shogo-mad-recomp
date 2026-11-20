@@ -2,7 +2,7 @@
 // (real functions where implemented, logging stubs elsewhere), drives startup
 // and a number of headless frames, and reports which engine calls the game made.
 //
-// Usage: shogo-probe [+var value ...] [--frames N] [--movies] [--save-config] [--gpu [--smooth] [--msaa N] [--gpu-scale S] | --gpu-reference] [--time] [--fps N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
+// Usage: shogo-probe [+var value ...] [--frames N] [--size WxH] [--movies] [--save-config] [--gpu [--smooth] [--msaa N] [--gpu-scale S] | --gpu-reference] [--time] [--fps N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...]
 //                    <object.lto.dylib> <cshell.dylib>
 // Run it from the extracted game folder.
 #include "engine/game_host.h"
@@ -78,6 +78,7 @@ int main(int argc, char **argv)
     std::vector<Trigger> triggers;  // a "TRIGGER" message from the player to named objects
     std::vector<const char *> paths;
     std::vector<std::string> conVars;  // "+name value" pairs, set before the game starts
+    int width = 640, height = 480;      // --size: the game's resolution (the app: 800 wide, the display's shape)
     bool gpu = false;                   // draw the world with the GPU backend
     bool gpuReference = false;          // software drawing, with a GPU device created as for --gpu
     shogo::GpuSettings gpuSettings;     // --smooth, --msaa N
@@ -96,6 +97,7 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--screenshot") && i + 1 < argc) screenshot = argv[++i];
         else if (!strcmp(argv[i], "--audio-out") && i + 1 < argc) audioOut = argv[++i];
         else if (!strcmp(argv[i], "--movies")) movies = true;
+        else if (!strcmp(argv[i], "--size") && i + 1 < argc) sscanf(argv[++i], "%dx%d", &width, &height);
         else if (!strcmp(argv[i], "--save-config")) saveConfig = true;
         else if (!strcmp(argv[i], "--gpu")) gpu = true;
         else if (!strcmp(argv[i], "--gpu-reference")) gpuReference = true;
@@ -127,7 +129,7 @@ int main(int argc, char **argv)
     }
     if (paths.size() != 2) {
         fprintf(stderr,
-                "usage: %s [+var value ...] [--frames N] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME@frame ...] <object.lto.dylib> <cshell.dylib>\n",
+                "usage: %s [+var value ...] [--frames N] [--size WxH] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME@frame ...] <object.lto.dylib> <cshell.dylib>\n",
                 argv[0]);
         return 2;
     }
@@ -169,7 +171,7 @@ int main(int argc, char **argv)
     printf("Server shell created\n");
 
     printf("\n== Client game module: %s\n", paths[1]);
-    if (!host.startClient(paths[1], 640, 480, &err)) fail("Client failed to start: " + err);
+    if (!host.startClient(paths[1], width, height, &err)) fail("Client failed to start: " + err);
     printf("Client initialized\n");
 
     std::vector<double> frameMs;

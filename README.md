@@ -19,12 +19,14 @@ Open `build/Shogo.app`. The launcher's **Import from GOG installer...** asks for
 Shogo installer (or drop it on the window): it reads the installer directly, copies the
 English game into `~/Library/Application Support/Shogo Recomp/Game` (about 460 MB, a few
 seconds) and checks every file against the installer's checksums. **Play** then starts the
-game; the launcher stays open while it runs. Graphics settings are in the game, under
-**Options > Display**: the renderer (Metal or Software) under **change mode**, and rows for
-textures (smooth or sharp), anti-aliasing (off to 8x), 3D resolution (native or the game's own,
-scaled up) and intro movies (the Monolith logo and intro before the menu). They take effect at
-once, apart from intro movies, which apply from the next start, and are saved in the game's
-`autoexec.cfg`. Once the game is imported, the launcher shows the game's splash screen, and its
+game; the launcher stays open while it runs. The game runs at 800 wide and your display's
+shape (800x500 on a 16:10 display), drawn with Metal. Display settings are in the game, under
+**Options > Display**: **resolution** is Original (an 800-wide window, 3D at the game's own
+resolution), Enhanced and Enhanced 2x (windows 55% and 85% of the display) or Native (full
+screen); all but Original draw the 3D world at the window's full pixel resolution, while the
+menus and HUD are scaled up; textures are smooth and edges 4x anti-aliased. **intro movies**
+plays or skips the Monolith logo and intro before the menu. They take effect at once (intro movies from
+the next start) and are saved in the game's `autoexec.cfg`. Once the game is imported, the launcher shows the game's splash screen, and its
 Dock icon is GOG's Shogo icon with a play badge; both are read from your imported data at
 runtime, never shipped in the app. Importing again replaces the game files but
 keeps saves and your key bindings. Steam's version isn't supported yet.

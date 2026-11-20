@@ -243,11 +243,13 @@ file ClientShellDLL/DisplayModeMenu.cpp 0e037be0d04a1bb5
 file ClientShellDLL/DisplayOptionsMenu.cpp bed251ebdb470e6f
 @ 15 0 -
 + ["\n"]
-+ ["// Port: rows for the eng", [12, 4, 7], "'s graphics", [29, 19, 29], "(", ["AppHeaders/server_de.h", 444, 49, 67], "the engine\n"]
-+ ["// applies as soon as they change) and", ["ClientShellDLL/RiotClientShell.cpp", 6258, 17, 34], ", between the dynamic\n"]
-+ ["// lighting row and back.\n"]
++ ["// Port: rows for the eng", [12, 4, 7], "'s", [29, 19, 29], "(", ["AppHeaders/server_de.h", 444, 49, 67], "it applies as soon\n"]
++ ["// as they change): the d", [16, 2, 8], " mode in ", [16, 25, 28], "ce of \"change mode\" (the engine\n"]
++ ["// picks the renderer and resolu", [16, 10, 14], "), and", ["ClientShellDLL/RiotClientShell.cpp", 6258, 21, 42], "hidden advanced\n"]
++ ["// settings' ", [16, 4, 7], "ce. Textures stay smooth and anti-aliasing (MSAA) at 4x.\n"]
 + ["struct POR", [12, 14, 23], "\n"]
 + ["{\n"]
++ ["\tint\t\tnItem;\n"]
 + ["\tchar*\tszLabel;\n"]
 + ["\tchar*\tszVar;\n"]
 + ["\tint\t\tnValues;\n"]
@@ -257,14 +259,20 @@ file ClientShellDLL/DisplayOptionsMenu.cpp bed251ebdb470e6f
 + ["};\n"]
 + ["static POR", [12, 14, 23], " s_aPortSettings[] =\n"]
 + ["{\n"]
-+ ["\t{ \"textures\",\t\t\"TextureFilter\",\t2, { 1, 0 },\t\t{ \"smooth\", \"sharp\" },\t\t\t0 },\n"]
-+ ["\t{ \"anti-aliasing\",\t\"MSAA\",\t\t\t\t4, { 1, 2, 4, 8 },\t{ \"off\", \"2x\", \"4x\", \"8x\" },\t2 },\n"]
-+ ["\t{ \"3d resolu", [16, 10, 14], "\",\t\"NativeResolu", [16, 31, 35], "\",\t2, { 1, 0 },\t\t{ \"native\", \"original\" },\t\t0 },\n"]
-+ ["\t{ \"intro movies\",\t\"", [16, 1, 4], "ableMovies\",\t2, { 0, 1 },\t\t{ \"on\", \"off\" },\t\t\t\t0 },\n"]
++ ["\t{ 0, \"resolution\",\t\t\"", [16, 1, 8], "Mode\",\t\t4, { 0, 1, 2, 3 },\t{ \"original\", \"enhanced\", \"enhanced 2x\", \"native\" },\t2 },\n"]
++ ["\t{ 5, \"intro movies\",\t\"", [16, 1, 4], "ableMovies\",\t2, { 0, 1 },\t\t{ \"on\", \"off\" },\t\t\t\t0 },\n"]
 + ["};\n"]
-+ [[12, 0, 8], "PORT_FIRST_ROW\t\t5\n"]
-+ [[12, 0, 8], "PORT_ROWS\t\t\t4\n"]
-+ [[12, 0, 8], "BACK_ROW\t\t\t(PORT_FIRST_ROW + PORT_ROWS)\n"]
++ [[12, 0, 8], "PORT_ROWS\t", [12, 31, null]]
++ [[12, 0, 8], "BACK_ROW\t\t\t6\n"]
++ ["\n"]
++ ["static int PortRowFor", ["ClientShellDLL/PopupMenu.h", 80, 23, 39], "\n"]
++ ["{\n"]
++ [[517, 0, 21], "PORT_ROWS; i++)\n"]
++ ["\t{\n"]
++ ["\t\tif (s_aPortSettings[i].nItem == nItem) return i;\n"]
++ ["\t}\n"]
++ ["\treturn -1;\n"]
++ ["}\n"]
 + ["\n"]
 + ["static int PortSettingIndex", [22, 31, 55], "int nRow)\n"]
 + ["{\n"]
@@ -286,64 +294,72 @@ file ClientShellDLL/DisplayOptionsMenu.cpp bed251ebdb470e6f
 + [[208, 1, 14], "WriteSub", [208, 23, 36], "s(", [208, 39, null]]
 + ["\t\t", [191, 14, 17], "upDynamicLight", [191, 52, 59], "s(", [191, 86, null]]
 + [[172, 0, null]]
-+ [[173, 0, 23], ">= PORT_FIRST_ROW", ["ClientShellDLL/JoystickMenu.cpp", 358, 42, 61], "BACK_ROW)\n"]
++ [[173, 0, 8], " (PortRowForItem", [173, 8, 22], ") >= 0)\n"]
 + [[174, 0, null]]
-+ ["\t\tStepPort", [192, 14, 21], " (m_n", [192, 31, 37], "ion - PORT_FIRST_ROW, -1", [192, 102, null]]
++ ["\t\tStepPort", [192, 14, 21], " (PortRowFor", [192, 27, 31], " (m_n", [192, 31, 37], "ion), -1", [192, 102, null]]
 @ 234 35 b05af801aba10a2a
 + ["\t\tLef", [271, 16, null]]
 + [[225, 0, null]]
 + [[231, 0, null]]
-+ [[232, 0, 23], ">= PORT_FIRST_ROW", ["ClientShellDLL/JoystickMenu.cpp", 358, 42, 61], "BACK_ROW)\n"]
++ [[232, 0, 8], " (PortRowForItem", [232, 8, 22], ") >= 0)\n"]
 + [[233, 0, null]]
-+ ["\t\tStepPort", [251, 14, 21], " (m_n", [251, 31, 37], "ion - PORT_FIRST_ROW, 1", [251, 102, null]]
-@ 304 1 58b7c67fce85603e
-+ [[304, 0, 23], ">= PORT_FIRST_ROW", ["ClientShellDLL/JoystickMenu.cpp", 358, 42, 61], "BACK_ROW)\n"]
-@ 306 3 cbe3777ae4134474
-+ ["\t\tRigh", [306, 27, null]]
-@ 310 1 24d763513aec1879
-+ [[310, 0, 26], "BACK_ROW)\n"]
-@ 354 2 f338677191a0213a
-@ 369 0 -
-+ ["\n"]
-+ ["\tfor", [371, 41, 47], [517, 10, 21], "PORT_ROWS; i++)\n"]
++ ["\t\tStepPort", [251, 14, 21], " (PortRowFor", [251, 27, 31], " (m_n", [251, 31, 37], "ion), 1", [251, 102, null]]
+@ 298 1 7d879af248e0ff64
++ [[298, 0, 3], " (PortRowForItem", [298, 3, 17], ") >", [298, 19, null]]
+@ 300 3 8aa8bdbc70d88c8f
++ ["\t\tRigh", [300, 24, null]]
+@ 304 7 97c4debc5d0ac953
++ [[304, 0, 26], "BACK_ROW)\n"]
+@ 345 11 6e70024d888cef33
++ ["\t// Each row's s", [346, 14, 20], " in the second column, at the row", ["AppHeaders/cpp_engineobjects_de.h", 22, 10, 27], "drew.\n"]
++ ["\tDBOOL bNoGore =", ["ClientShellDLL/TextHelper.cpp", 984, 5, 30], [349, 1, 12], [88, 41, 68], [349, 116, null]]
++ [[347, 0, 58], ";\n"]
++ ["\tfor (", [347, 1, 5], "i", [347, 6, 12], "Top", [347, 70, 74], [631, 24, null]]
 + ["\t{\n"]
-+ ["\t", [367, 0, 20], "PORT_FIRST_ROW + i - 1", [367, 21, null]]
-+ ["\t\t", [631, 34, 46], "& item =", [368, 55, 58], "Port", [368, 84, 91], "[i];\n"]
-+ ["\t", [368, 0, 72], "PORT_FIRST_ROW + i", [368, 73, 76], "item", [368, 91, 112], "item", [368, 127, null]]
-+ ["\t}\n"]
++ ["\t\tif (!", [347, 61, 75], "i].h", [347, 80, 88], ") continue;\n"]
++ ["\t\t", [631, 34, 46], "* pValue =", [349, 82, 88], ";\n"]
++ ["\t", [350, 0, 5], "i == 2 && !bNoGore) pValue = &", [138, 6, 16], [350, 80, null]]
++ [["ClientShellDLL/MouseMenu.cpp", 515, 0, 16], "3) pValue = &m_", [342, 22, 28], "Flash;\n"]
++ ["\t\telse ", [350, 1, 5], "i == 4) pValue = ", [307, 31, 44], [350, 80, null]]
++ ["\t", [42, 0, 10], "PortRowFor", [349, 77, 81], " (i) >= 0) pValue = &m_Por", [349, 97, 105], "[PortRowForItem (i)];\n"]
++ ["\t", [350, 0, 5], "pValue)\n"]
++ ["\t\t{\n"]
++ ["\t\t", [353, 0, 58], "nSelec", [353, 64, 68], " == i ? pValue->", [361, 91, 111], "pValue->", [353, 69, 87], [361, 143, 169], [353, 103, null]]
++ ["\t", [343, 0, null]]
++ ["\t\t", [347, 35, 38], "=", [347, 60, 75], "i", [347, 76, 94], [347, 101, 115], ";\n"]
++ [[343, 0, null]]
 + ["}\n"]
-+ ["\n"]
-+ [[371, 0, 27], "tepPortSetting", [371, 41, 48], "Row, int nDir)\n"]
+@ 357 1 3fb71b6400790232
++ [[54, 0, 20], [355, 72, 76], "::StepPor", [355, 96, 104], " (int nRow, int nDir)\n"]
 + ["{\n"]
-+ ["\tif (!", [368, 1, 12], [77, 17, null]]
-+ ["\n"]
-+ ["\tPORT_SETTING& s = s_aPort", [368, 84, 91], "s[nRow];\n"]
-+ ["\tint nIndex = (PortSettingIndex (", [368, 1, 12], ", nRow)", [368, 154, 157], "nDir + s.nValues) % s.nValues;\n"]
++ [[359, 0, 6], [359, 30, 41], [77, 17, null]]
+@ 359 1 f44886552b7945da
++ ["\tPORT_SETTING& s = s_aPort", [361, 83, 90], "s[nRow];\n"]
++ ["\tint nIndex = (PortSett", [359, 24, 28], "ndex ", [359, 29, 43], "nRow) + nDir + s.nValues) % s.nValues;\n"]
 + [[427, 0, 10], "128];\n"]
-+ [[429, 0, 16], "+%s %d\", s.szVar,", [371, 41, 46], ") s.aValues[nIndex]);\n"]
-+ [[368, 0, 14], [326, 15, 28], [368, 88, 91], " (str", [368, 182, null]]
-+ ["\tSetupPortSetting", [368, 18, 25], "s (nRow", [368, 182, null]]
++ [[429, 0, 16], "+%s %d\", s", [357, 73, 76], "Var, (int) s.aValues[nIndex]", [357, 142, null]]
++ [[361, 1, 15], [326, 15, 28], [361, 87, 90], " (str", [361, 179, null]]
++ ["\tSetupPortSetting", [361, 19, 26], "s (nRow", [361, 179, null]]
 + ["}\n"]
 + ["\n"]
-+ [[371, 0, 29], "upPortSettingSurfaces", [371, 41, 48], "Row)\n"]
++ [[410, 0, 31], "PortSetting", [361, 19, 26], "s (i", [361, 44, 47], "nRow)\n"]
 + ["{\n"]
-+ ["\tif (!", [368, 1, 12], [319, 17, 29], [368, 93, 97], [77, 17, null]]
++ [[359, 0, 6], [359, 30, 41], [319, 17, null]]
 + ["\n"]
-+ [[123, 1, 29], [368, 1, 4], "Riot", [368, 93, 97], [132, 28, 41], [368, 182, null]]
-+ [[123, 1, 20], [368, 101, 110], "=", [368, 111, 114], "pRiot", [368, 129, 133], [133, 30, 43], [368, 182, null]]
-+ ["\tif (m_sz", [368, 48, 54], [125, 16, null]]
-+ ["\t{\n"]
-+ [[127, 1, 17], [368, 1, 4], "Riot", [368, 93, 97], [127, 28, 41], [368, 182, null]]
-+ ["\t\tpFont", [368, 101, 110], "=", [368, 111, 114], "pRiot", [368, 129, 133], [128, 30, 43], [368, 182, null]]
-+ ["\t}\n"]
++ [[123, 1, 26], [357, 2, 7], "pRiot", [357, 8, 12], [132, 28, 41], [357, 142, null]]
++ [[123, 1, 20], [361, 100, 109], "=", [361, 110, 113], "pRiot", [361, 126, 130], [133, 30, 43], [361, 179, null]]
++ ["\tif (", [357, 16, 20], "Screen", [357, 29, 33], "< 400)\n"]
+@ 361 1 383a5732c8ca3551
++ [[127, 1, 17], [361, 2, 5], "Riot", [361, 92, 96], [127, 28, 41], [361, 179, null]]
++ ["\t\tpFont", [361, 100, 109], "=", [361, 110, 113], "pRiot", [361, 126, 130], [128, 30, 43], [361, 179, null]]
+@ 364 5 43dc4cf370335566
++ ["\t", [631, 34, 46], "& item =", [361, 56, 59], "Port", [361, 83, 90], "[nRow];\n"]
++ ["\tif (item", [138, 19, 31], [361, 2, 16], "elete", [361, 19, 26], " (item", [361, 90, 100], [361, 179, null]]
++ ["\tif (item", [361, 90, 108], ")", [361, 110, 113], [138, 33, 59], "item", [361, 124, 134], "Selected", [361, 179, null]]
 + ["\n"]
-+ ["\t", [631, 34, 46], "& item =", [368, 55, 58], "Port", [368, 84, 91], "[nRow];\n"]
-+ ["\tif (item", [138, 19, 31], [368, 1, 15], "elete", [368, 18, 25], " (item", [368, 91, 101], [368, 182, null]]
-+ ["\tif (item", [368, 91, 109], ")", [368, 111, 114], [138, 33, 59], "item", [368, 127, 137], "Selected", [368, 182, null]]
-+ ["\n"]
-+ ["\tchar* szValue = s_aPortSettings[nRow].aNames[PortSettingIndex (", [368, 1, 12], ", nRow)];\n"]
-+ ["\ti", [367, 16, 19], ".h", [367, 25, 33], [141, 25, 61], [367, 50, 53], [430, 65, 94], "zValue);\n"]
-+ ["\titem", [368, 91, 110], [141, 26, 61], [368, 124, 127], [142, 72, 102], "szValue", [368, 182, null]]
++ ["\tchar* szValue = s_aPortSettings[nRow].aNames[PortSettingIndex (", [361, 2, 13], ", nRow)];\n"]
++ ["\titem", [141, 15, 66], [361, 2, 13], [430, 78, 94], "zValue", [361, 179, null]]
++ ["\titem", [361, 90, 109], [141, 26, 61], [361, 121, 124], [142, 72, 102], "szValue", [361, 179, null]]
 @ 394 0 -
 + ["}\n"]
 + ["\n"]
@@ -375,29 +391,34 @@ file ClientShellDLL/DisplayOptionsMenu.cpp bed251ebdb470e6f
 @ 438 3 6b42da8adbdac7c5
 @ 444 1 acab94c70a9b22da
 @ 456 11 6eaad4e0324c0f1d
+@ 483 1 5a9e08abedab6309
 @ 486 3 d4e8a6f727c0b09c
 + [[486, 0, 94], "\"dynamic lighting\"", [486, 112, null]]
 + [[488, 0, 15], "BACK_ROW", [488, 16, null]]
 @ 492 1 0feb8ac5dba34e02
+@ 494 1 c0e10353c99b553c
 @ 497 3 1f49f008d5884bd9
 + [[497, 0, 104], "\"dynamic lighting\"", [497, 122, null]]
 + [[499, 0, 15], "BACK_ROW", [499, 16, null]]
 + [[206, 1, 11], "nRow", [494, 35, 38], "0; nRow < PORT_ROWS; nRow++)\n"]
 + ["\t{\n"]
-+ ["\t", [494, 0, 15], "PORT_FIRST_ROW + nRow", [494, 16, 27], [494, 35, 94], "Normal, s_aPortSettings[nRow].szLabel", [494, 122, null]]
-+ ["\t", [494, 0, 15], "PORT_FIRST_ROW + nRow", [494, 16, 104], "s_aPortSettings[nRow].szLabel", [494, 122, null]]
++ ["\t\tint n", [501, 20, 24], [501, 32, 35], "s_aPort", [501, 102, 110], "[nRow].nItem;\n"]
++ ["\t", [494, 0, 15], "nItem", [494, 16, 27], [494, 35, 94], "Normal, s_aPortSettings[nRow].szLabel", [494, 122, null]]
++ ["\t", [494, 0, 15], "nItem", [494, 16, 104], "s_aPortSettings[nRow].szLabel", [494, 122, null]]
 + ["\t\tSetupPort", [501, 7, 14], [501, 54, 61], "s (nRow", [501, 137, null]]
 + ["\t}\n"]
 @ 503 1 d191e6eecd84c012
 + ["\t", [501, 7, 10], "upDynamicLight", [501, 54, 61], "s(", [501, 137, null]]
-@ 512 2 abb23730fa31b7f5
-+ [[512, 0, 76], "3", [512, 77, 82], "2", [512, 83, null]]
-+ [[513, 0, 84], "3", [513, 85, 90], "2", [513, 91, null]]
-@ 517 1 2ff0ed6b19e0a773
+@ 508 10 834aaaac3489d8b5
++ ["\t// Port: no c", [508, 7, 13], " r", [508, 14, 21], " lines (row 1); the engine picks the renderer.\n"]
 + ["\t", [517, 6, 11], ";\n"]
-+ [[517, 0, 6], [517, 10, 20], "= BACK_ROW", [517, 22, 28], "\t// port: ", ["ClientRes/ClientRes.rc", 844, 29, 46], " are hidden; our rows take their place\n"]
++ [[517, 0, 6], [517, 10, 20], "= BACK_ROW", [517, 22, null]]
+@ 519 0 -
++ [[519, 0, 6], "i == 1) continue;\n"]
 @ 533 1 37a7c4d299987b5a
 + [[533, 0, 16], "= BACK_ROW", [533, 18, null]]
+@ 535 0 -
++ ["\t\tif", [533, 4, 9], "= 1) continue;\n"]
 @ 545 1 2ff0ed6b19e0a773
 + [[545, 0, 20], "= BACK_ROW", [545, 22, null]]
 @ 568 0 -
@@ -421,7 +442,7 @@ file ClientShellDLL/DisplayOptionsMenu.h 8bb839cc26788be9
 + [[47, 0, 14], "PortSetting", [47, 29, 37], " (int nRow", [47, 38, null]]
 + [[46, 0, 10], "tepPortSetting", [46, 24, 31], "Row, int nDir", [46, 38, null]]
 @ 71 0 -
-+ [[68, 0, 17], "Port", [68, 21, 28], "[4];\t// port: the engine's graphics settings and intro movies\n"]
++ [[68, 0, 17], "Port", [68, 21, 28], "[2];\t// port: the engine's graphics settings and intro movies\n"]
 file ClientShellDLL/GibFX.cpp f8753b57519914a3
 @ 213 1 08750e4eadc2cf48
 + ["\t\t", [213, 7, 12], ";\n"]
