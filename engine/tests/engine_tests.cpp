@@ -286,6 +286,43 @@ static void testCollision()
     // A plain sweep reports the hit and its normal.
     shogo::SweepHit hit = shogo::sweepEllipsoid(tris, radii, {0, 20, 0}, {200, 0, 0});
     CHECK(hit.hit && std::fabs(hit.distance - 90) < 0.1f && hit.normal.x < -0.99f);
+
+    // Walking (the player on foot: radii 22 45 22, steps up to 24) into a
+    // step of height h at x = 100, a frame at a time, the velocity stopped by
+    // what's hit as the engine does. Returns the highest and the last place.
+    auto walk = [](float h, float speed, Vec3 *top) {
+        std::vector<shogo::SweepTri> st;
+        for (int k = 0; k < 2; ++k) {
+            st.push_back(quad({-1000, 0, -1000}, {-1000, 0, 1000}, {100, 0, 1000}, {0, 1, 0}, k));
+            st.push_back(quad({100, h, -1000}, {100, h, 1000}, {1000, h, 1000}, {0, 1, 0}, k));
+            st.push_back(quad({100, 0, -1000}, {100, h, -1000}, {100, h, 1000}, {-1, 0, 0}, k));
+        }
+        Vec3 r{22, 45, 22}, pos{40, 45.05f, 0}, vel{0, 0, 0};
+        *top = pos;
+        for (int f = 0; f < 60; ++f) {
+            vel.x = std::min(vel.x + 100.0f, speed);  // accelerating up to speed, units/s at 30 fps
+            vel.y -= 33.0f;                           // gravity
+            std::vector<shogo::SweepHit> hits;
+            pos = shogo::walkMove(st, r, pos, vel * (1.0f / 30), 24.0f, hits);
+            for (const shogo::SweepHit &sh : hits) {
+                float into = shogo::dot(vel, sh.normal);
+                if (into < 0) vel = vel - sh.normal * into;
+            }
+            if (pos.y > top->y) *top = pos;
+        }
+        return pos;
+    };
+    Vec3 top;
+    // Up a 16 step from a walk and from a run: onto it, without hopping up
+    // off its lip, and keeping the speed.
+    for (float speed : {200.0f, 400.0f}) {
+        end = walk(16, speed, &top);
+        CHECK(end.x > 100 + 22 && std::fabs(end.y - 61) < 0.3f);
+        CHECK(top.y < 61.5f);
+    }
+    // A 32 ledge is too high: stopped at its foot.
+    end = walk(32, 400, &top);
+    CHECK(end.x < 100 && top.y < 45.5f);
 }
 
 static void testModelAnimation()

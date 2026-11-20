@@ -57,6 +57,7 @@ struct SweepHit {
     float distance = 0;  // along the move, in world units
     Vec3 point;          // world space
     Vec3 normal;         // world space, unit
+    Vec3 face;           // the touched triangle's own normal (collideAndSlide only)
     void *owner = nullptr;
     uint32_t flags = 0;
     uint32_t hpoly = 0xFFFFFFFF;
@@ -68,6 +69,13 @@ struct SweepHit {
 // vertical walls (for walking characters).
 Vec3 collideAndSlide(const std::vector<SweepTri> &tris, const Vec3 &radii, const Vec3 &from, const Vec3 &move,
                      std::vector<SweepHit> *hits, float wallNormalY = 0);
+
+// A walking character's move (FLAG_STAIRSTEP): slides, but not up faces
+// steeper than 60 degrees; steps up onto floors up to stepHeight above its
+// feet; and stands on a floor's own plane where its rounded bottom meets the
+// floor's edge. `hits` gets the contacts to stop the velocity against.
+Vec3 walkMove(const std::vector<SweepTri> &tris, const Vec3 &radii, const Vec3 &from, const Vec3 &move,
+              float stepHeight, std::vector<SweepHit> &hits);
 
 // First hit of the ellipsoid moving from `from` by `move` (no sliding).
 SweepHit sweepEllipsoid(const std::vector<SweepTri> &tris, const Vec3 &radii, const Vec3 &from, const Vec3 &move);

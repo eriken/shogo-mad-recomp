@@ -316,6 +316,7 @@ Vec3 collideAndSlide(const std::vector<SweepTri> &tris, const Vec3 &radii, const
             sh.distance = dist;
             sh.point = mul(h.point, radii);
             sh.normal = normalized(div(slideNormal, radii));
+            sh.face = tris[h.index].tri.n;
             sh.owner = tris[h.index].owner;
             sh.flags = tris[h.index].tri.flags;
             sh.hpoly = tris[h.index].tri.hpoly;
@@ -353,6 +354,101 @@ bool segmentTriangle(const Tri &t, const Vec3 &from, const Vec3 &to, bool twoSid
     if (!pointInTriangle(p, t.a, t.b, t.c)) return false;
     *frac = f;
     return true;
+}
+
+namespace {
+
+// The walkable floor (normal y over 0.7) just past a contact on an edge, in
+// direction `dir`: the edge is shared with the riser, so the hit's own triangle
+// may be either. Returns its normal, or y = 0 when there is none.
+Vec3 floorPast(const std::vector<SweepTri> &tris, const Vec3 &point, const Vec3 &dir)
+{
+    Vec3 p = point + dir * 0.5f;
+    for (const SweepTri &t : tris) {
+        float f;
+        if (t.tri.n.y > 0.7f && segmentTriangle(t.tri, p + Vec3{0, 1, 0}, p - Vec3{0, 1, 0}, false, &f)) return t.tri.n;
+    }
+    return {0, 0, 0};
+}
+
+}  // namespace
+
+Vec3 walkMove(const std::vector<SweepTri> &tris, const Vec3 &radii, const Vec3 &from, const Vec3 &move,
+              float stepHeight, std::vector<SweepHit> &hits)
+{
+    Vec3 end = collideAndSlide(tris, radii, from, move, &hits, 0.5f);
+    Vec3 horiz{move.x, 0, move.z};
+    const float wanted = length(horiz);
+    const Vec3 dir = wanted > 0.01f ? horiz * (1.0f / wanted) : Vec3{0, 0, 0};
+
+    // Stairs: if a wall stopped us, try stepping up, across and back down.
+    bool wall = false;
+    for (const SweepHit &h : hits)
+        if (std::fabs(h.normal.y) < 0.7f) wall = true;
+    if (wall && wanted > 0.01f) {
+        std::vector<SweepHit> stepHits;
+        Vec3 up = collideAndSlide(tris, radii, from, {0, stepHeight, 0}, nullptr);
+        // Level across: riding up the curve of a lip would climb past the
+        // step height.
+        Vec3 across = collideAndSlide(tris, radii, up, horiz, nullptr, 1.01f);
+        float drop = (up.y - from.y) + std::max(0.0f, -move.y) + 0.5f;
+        // Straight down to the first contact (sliding would roll us back off
+        // a lip).
+        SweepHit landing = sweepEllipsoid(tris, radii, across, {0, -drop, 0});
+        Vec3 down = across - Vec3{0, landing.hit ? std::max(0.0f, landing.distance - 0.05f) : drop, 0};
+        if (landing.hit) stepHits.push_back(landing);
+        // Landed on something flat, or on the lip of a floor above our feet:
+        // the rounded bottom meets a step's edge before its top, and once the
+        // riser has stopped us a frame's move (a couple of units) never
+        // carries the middle over it. Either way the floor's plane is what we
+        // stand on: the curve of the lip would turn the speed we had into a
+        // hop up off the step.
+        // (A lip is touched with the bottom raised over it, so: its height
+        // too must be within a step of our feet.)
+        bool landed = false, onStep = false;
+        const float feet = from.y - radii.y;
+        for (SweepHit &h : stepHits) {
+            if (h.point.y > feet + stepHeight + 0.5f) continue;
+            Vec3 floor = h.face.y > 0.7f ? h.face : floorPast(tris, h.point, dir);
+            bool higher = h.point.y > feet + 1.0f;
+            if (h.normal.y > 0.7f || (floor.y > 0.7f && higher)) landed = true;
+            if (floor.y > 0.7f && higher) onStep = true;
+            if (floor.y > 0.7f) h.normal = h.face = floor;
+        }
+        Vec3 gotStep = down - from, gotSlide = end - from;
+        float stepDist = std::sqrt(gotStep.x * gotStep.x + gotStep.z * gotStep.z);
+        float slideDist = std::sqrt(gotSlide.x * gotSlide.x + gotSlide.z * gotSlide.z);
+        // Up a step: when it gets further than the slide, or as far but onto
+        // the step (the slide would stop at its riser).
+        if (landed && (stepDist > slideDist + 0.5f || (onStep && stepDist + 0.01f >= slideDist))) {
+            end = down;
+            hits = std::move(stepHits);
+        }
+    }
+
+    // Walking over a floor's lip: the rounded bottom rides up the curve of the
+    // edge, and bouncing off that slanted contact turns the speed into a hop.
+    // Walkers stand on the floor's own plane, so: stop only what goes into the
+    // floor, and settle back down onto it.
+    bool lip = false;
+    for (SweepHit &h : hits) {
+        if (h.normal.y <= 0.0f || dot(h.normal, h.face) > 0.999f) continue;  // flat on a face
+        Vec3 floor = h.face.y > 0.7f || wanted <= 0.01f ? h.face : floorPast(tris, h.point, dir);
+        if (floor.y > 0.7f) {
+            h.normal = floor;
+            lip = true;
+        }
+    }
+    if (lip && move.y <= 0.0f && end.y > from.y + 0.5f) {
+        std::vector<SweepHit> settleHits;
+        Vec3 settled = collideAndSlide(tris, radii, end, {0, from.y - end.y, 0}, &settleHits);
+        for (const SweepHit &h : settleHits)
+            if (h.face.y > 0.7f) {
+                end = settled;
+                break;
+            }
+    }
+    return end;
 }
 
 }  // namespace shogo

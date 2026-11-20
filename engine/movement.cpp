@@ -191,8 +191,7 @@ Vec3 slide(Server &s, EngineObject *o, const std::vector<SweepTri> &tris, const 
         return from + move * (len > 0 ? d / len : 0);
     }
     (void)s;
-    // Walking characters don't creep up faces steeper than 60 degrees.
-    return collideAndSlide(tris, radii, from, move, &hits, (o->flags & FLAG_STAIRSTEP) ? 0.5f : 0.0f);
+    return collideAndSlide(tris, radii, from, move, &hits);
 }
 
 }  // namespace
@@ -224,33 +223,9 @@ void moveObject(Server &s, EngineObject *o, const DVector &target, bool teleport
     gather(s, o, mn, mx, tris);
 
     std::vector<SweepHit> hits;
-    Vec3 end = slide(s, o, tris, radii, from, move, hits);
-
-    // Stairs: if a wall stopped us, try stepping up, across and back down.
-    if ((o->flags & FLAG_STAIRSTEP) && !(o->flags & FLAG_NOSLIDING)) {
-        bool wall = false;
-        for (const SweepHit &h : hits)
-            if (std::fabs(h.normal.y) < 0.7f) wall = true;
-        Vec3 horiz{move.x, 0, move.z};
-        float wanted = length(horiz);
-        if (wall && wanted > 0.01f) {
-            std::vector<SweepHit> stepHits;
-            Vec3 up = collideAndSlide(tris, radii, from, {0, stepHeight, 0}, nullptr);
-            Vec3 across = collideAndSlide(tris, radii, up, horiz, nullptr, 0.5f);
-            float drop = (up.y - from.y) + std::max(0.0f, -move.y) + 0.5f;
-            Vec3 down = collideAndSlide(tris, radii, across, {0, -drop, 0}, &stepHits);
-            bool landed = false;
-            for (const SweepHit &h : stepHits)
-                if (h.normal.y > 0.7f) landed = true;
-            Vec3 gotStep = down - from, gotSlide = end - from;
-            float stepDist = std::sqrt(gotStep.x * gotStep.x + gotStep.z * gotStep.z);
-            float slideDist = std::sqrt(gotSlide.x * gotSlide.x + gotSlide.z * gotSlide.z);
-            if (landed && stepDist > slideDist + 0.5f) {
-                end = down;
-                hits = std::move(stepHits);
-            }
-        }
-    }
+    Vec3 end = (o->flags & FLAG_STAIRSTEP) && !(o->flags & FLAG_NOSLIDING)
+                   ? walkMove(tris, radii, from, move, stepHeight, hits)
+                   : slide(s, o, tris, radii, from, move, hits);
     o->pos = dv(end);
     static bool trace = getenv("SHOGO_TRACE_MOVES") != nullptr;
     if (trace && o->clientOnly) {
