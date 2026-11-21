@@ -103,6 +103,7 @@ HOBJECT readObject(void *, HMESSAGEREAD h)
 HSTRING readHString(void *self, HMESSAGEREAD h)
 {
     char *s = readString(self, h);
+    if (Message *m = R(h); m && m->emptyHStringIsNull && !s[0]) return nullptr;
     EngineStrings *st = stringsFor(self);
     return st ? st->create(s) : nullptr;
 }
@@ -112,6 +113,7 @@ HMESSAGEREAD readHMessageRead(void *, HMESSAGEREAD h)
     if (!m) return nullptr;
     uint32_t n = m->get<uint32_t>();
     auto *inner = new Message;
+    inner->emptyHStringIsNull = m->emptyHStringIsNull;
     n = (uint32_t)std::min<size_t>(n, m->data.size() - m->pos);
     inner->data.assign(m->data.begin() + m->pos, m->data.begin() + m->pos + n);
     m->pos += n;

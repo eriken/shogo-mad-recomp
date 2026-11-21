@@ -34,6 +34,12 @@ struct Message {
     // strafing ships, flak, scripted crashes). So a string read at the end of
     // one starts over from the beginning.
     bool rereadable = false;
+    // Saved-game data: an empty string read back as an HSTRING is a null one.
+    // The save writes a null HSTRING as "", and the game tells "none" from
+    // "something" by the handle alone: a Prop with a null DestroyedModels is
+    // removed when destroyed, but with an empty one it stays as a wreck, so
+    // without this nothing destroyed after a load ever went away.
+    bool emptyHStringIsNull = false;
 
     void put(const void *p, size_t n) { data.insert(data.end(), (const uint8_t *)p, (const uint8_t *)p + n); }
     bool get(void *p, size_t n)

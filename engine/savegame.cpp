@@ -443,6 +443,7 @@ DRESULT restoreObjects(char *fileName, DDWORD param, DDWORD flags)
         if (o->removed) continue;
         Message state;
         state.data = r->gameData;
+        state.emptyHStringIsNull = true;
         s->engineMessage(o, MID_LOADOBJECT, toReadHandle(&state), (float)param);
         state.magic = 0;
     }

@@ -1186,6 +1186,29 @@ static void testMessages()
     client->ReadFromMessageVector(rd, &v2);
     CHECK(near(v2, 1, 2, 3));
     delete m;
+
+    // A null HSTRING is saved as "". Read back from a saved game it is null
+    // again (a Prop with no DestroyedModels must still be removed when it is
+    // destroyed after a load); in any other message it is an empty string.
+    shogo::EngineStrings strings(nullptr, "client");
+    shogo::installMessageAPI(client, &strings, nullptr, nullptr);
+    for (bool load : {false, true}) {
+        shogo::Message s;
+        s.emptyHStringIsNull = load;
+        HSTRING named = strings.create("wreck.abc");
+        client->WriteToMessageHString(shogo::toWriteHandle(&s), nullptr);
+        client->WriteToMessageHString(shogo::toWriteHandle(&s), named);
+        strings.free(named);
+        s.pos = 0;
+        HSTRING none = client->ReadFromMessageHString(shogo::toReadHandle(&s));
+        HSTRING back = client->ReadFromMessageHString(shogo::toReadHandle(&s));
+        CHECK(load ? none == nullptr : (none && !strings.data(none)[0]));
+        CHECK(back && !strcmp(strings.data(back), "wreck.abc"));
+        if (none) strings.free(none);
+        strings.free(back);
+        s.magic = 0;
+    }
+    shogo::installMessageAPI(client, nullptr, nullptr, nullptr);
 }
 
 static std::vector<uint8_t> readFile(const std::string &path)
