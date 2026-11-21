@@ -86,14 +86,26 @@ uint32_t Mixer::play(const PlaySoundInfo &info, EngineObject *attachTo, bool loc
     auto data = m_cache[RezFile::key(info.m_szSoundName)];
     if (!data || data->samples.empty()) return 0;
 
-    // A voice limit like the hardware had: drop the oldest finished-or-lowest one.
+    // A voice limit like the hardware had: drop the lowest one. Only sounds
+    // that can be heard count. A looping sound out of earshot took no voice
+    // on the hardware, and 07_Avernus1 keeps ~45 ambient loops going across
+    // the level: counted, they filled every voice, so its narration, effects
+    // and music cues were all refused.
     constexpr size_t kMaxVoices = 48;
-    if (m_voices.size() >= kMaxVoices) {
-        auto victim = std::min_element(m_voices.begin(), m_voices.end(), [](const Voice &a, const Voice &b) {
-            if (a.keep != b.keep) return !a.keep;  // never steal a sound the game holds a handle to
-            return a.priority < b.priority;
-        });
-        if (victim->keep || victim->priority > info.m_nPriority) return 0;
+    auto audible = [this](const Voice &v) {
+        if (v.done) return false;
+        if (v.local || v.outer <= 0) return true;
+        float dx = float(v.where.x) - m_listener.x, dy = float(v.where.y) - m_listener.y,
+              dz = float(v.where.z) - m_listener.z;
+        return dx * dx + dy * dy + dz * dz < v.outer * v.outer;
+    };
+    if (size_t(std::count_if(m_voices.begin(), m_voices.end(), audible)) >= kMaxVoices) {
+        auto victim = m_voices.end();
+        for (auto it = m_voices.begin(); it != m_voices.end(); ++it) {
+            if (it->keep || !audible(*it)) continue;  // never steal a sound the game holds a handle to
+            if (victim == m_voices.end() || it->priority < victim->priority) victim = it;
+        }
+        if (victim == m_voices.end() || victim->priority > info.m_nPriority) return 0;
         m_voices.erase(victim);
     }
 

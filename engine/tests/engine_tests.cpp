@@ -711,6 +711,24 @@ static void testSoundMixer(const shogo::ResourceFS &fs)
     m.kill(b);
     m.kill(c);
     CHECK(m.voiceCount() == 0);
+
+    // The voice limit counts only sounds that can be heard: held loops out
+    // of earshot (07_Avernus1 has ~45) don't keep a voice line from playing.
+    info.m_dwFlags = PLAYSOUND_AMBIENT | PLAYSOUND_LOOP | PLAYSOUND_GETHANDLE;
+    info.m_vPosition = DVector(0, 0, 5000);
+    std::vector<uint32_t> held;
+    for (int i = 0; i < 60; ++i) held.push_back(m.play(info, nullptr, false));
+    CHECK(held.back() != 0);
+    info.m_dwFlags = PLAYSOUND_LOCAL;
+    CHECK(m.play(info, nullptr, false) != 0);
+    // Heard ones still fill it: 48 held loops in earshot leave no voice free.
+    m.clear();
+    info.m_dwFlags = PLAYSOUND_AMBIENT | PLAYSOUND_LOOP | PLAYSOUND_GETHANDLE;
+    info.m_vPosition = DVector(0, 0, 50);
+    for (int i = 0; i < 48; ++i) m.play(info, nullptr, false);
+    info.m_dwFlags = PLAYSOUND_LOCAL;
+    CHECK(m.play(info, nullptr, false) == 0);
+    m.clear();
 }
 
 static void testParticles()
