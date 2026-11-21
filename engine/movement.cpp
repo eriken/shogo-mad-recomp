@@ -154,11 +154,17 @@ void touch(Server &s, EngineObject *a, EngineObject *b)
     s.engineMessage(a, MID_TOUCHNOTIFY, b ? toHObject(b) : nullptr, 0.0f);
 }
 
+// Boxes this close count as touching. Collision stops a mover a hair short of
+// the world, so an object whose box is flush with a wall or a piece of
+// furniture (the ID card on the Quarters nightstand, its front at the
+// nightstand's face) could never be touched walking straight at it.
+constexpr float kTouchContact = 1.0f;
+
 bool boxesOverlap(const EngineObject *a, const EngineObject *b)
 {
-    return std::fabs(a->pos.x - b->pos.x) <= a->dims.x + b->dims.x &&
-           std::fabs(a->pos.y - b->pos.y) <= a->dims.y + b->dims.y &&
-           std::fabs(a->pos.z - b->pos.z) <= a->dims.z + b->dims.z;
+    return std::fabs(a->pos.x - b->pos.x) <= a->dims.x + b->dims.x + kTouchContact &&
+           std::fabs(a->pos.y - b->pos.y) <= a->dims.y + b->dims.y + kTouchContact &&
+           std::fabs(a->pos.z - b->pos.z) <= a->dims.z + b->dims.z + kTouchContact;
 }
 
 // Touches from overlapping (triggers, pickups, projectiles passing through characters).
