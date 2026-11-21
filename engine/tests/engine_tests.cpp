@@ -450,6 +450,40 @@ static void testModels(const shogo::ResourceFS &fs)
         }
         CHECK(unit);
     }
+
+    // FLAG_ANIMTRANSITION: the Admiral's two idles stand differently, so
+    // switching between them jumps (the Dock briefing's "twitch"). A blend
+    // starts on the old pose, ends on the new one, and halfway is in between.
+    auto adm = fs.read("Models/Characters/Admiral.abc");
+    auto am = adm ? shogo::parseModel(*adm, nullptr) : nullptr;
+    int ir1 = am ? am->find("IR1") : -1, ir2 = am ? am->find("IR2") : -1;
+    CHECK(ir1 >= 0 && ir2 >= 0);
+    if (ir1 >= 0 && ir2 >= 0) {
+        float end1 = (float)am->anims[(size_t)ir1].length;
+        std::vector<shogo::Vec3> p1, p2, b0, b1, bh;
+        shogo::poseModel(*am, ir1, end1, nullptr, &p1, nullptr);
+        shogo::poseModel(*am, ir2, 0, nullptr, &p2, nullptr);
+        shogo::PoseBlend from{ir1, end1, 1.0f};
+        shogo::poseModel(*am, ir2, 0, nullptr, &b1, nullptr, &from);
+        from.weight = 0.5f;
+        shogo::poseModel(*am, ir2, 0, nullptr, &bh, nullptr, &from);
+        from.weight = 0;
+        shogo::poseModel(*am, ir2, 0, nullptr, &b0, nullptr, &from);
+        float jump = 0, startOff = 0, endOff = 0, halfToOld = 0, halfToNew = 0;
+        auto dist = [](const shogo::Vec3 &a, const shogo::Vec3 &b) {
+            shogo::Vec3 d = a - b;
+            return std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+        };
+        for (size_t v = 0; v < p1.size(); ++v) {
+            jump = std::max(jump, dist(p1[v], p2[v]));
+            startOff = std::max(startOff, dist(b1[v], p1[v]));
+            endOff = std::max(endOff, dist(b0[v], p2[v]));
+            halfToOld = std::max(halfToOld, dist(bh[v], p1[v]));
+            halfToNew = std::max(halfToNew, dist(bh[v], p2[v]));
+        }
+        printf("  Admiral IR1 -> IR2: vertices jump up to %.1f units\n", jump);
+        CHECK(jump > 5 && startOff < 0.01f && endOff < 0.01f && halfToOld < jump * 0.75f && halfToNew < jump * 0.75f);
+    }
 }
 
 // A wall facing the camera, lit 0.25 by its baked light; a light just in front

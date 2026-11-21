@@ -83,8 +83,22 @@ struct NodeTransform {
 // Poses a model: node transforms at `timeMs` into animation `anim` (keyframes
 // interpolated), and every vertex position and normal in model space. Output
 // is in the engine's space (the file's data mirrored in z).
+// A pose to blend from: animation `anim` at `timeMs`, weighted `weight`
+// (1 = all of it, 0 = none).
+struct PoseBlend {
+    int anim = -1;
+    float timeMs = 0, weight = 0;
+};
 void poseModel(const ModelInfo &m, int anim, float timeMs, std::vector<NodeTransform> *nodes,
-               std::vector<Vec3> *positions, std::vector<Vec3> *normals);
+               std::vector<Vec3> *positions, std::vector<Vec3> *normals, const PoseBlend *from = nullptr);
+
+// FLAG_ANIMTRANSITION's length ("a 200ms transition between model animations").
+constexpr float kAnimTransitionMs = 200.0f;
+
+// poseModel for an object: its animation, blended from the one it left while
+// FLAG_ANIMTRANSITION's transition runs.
+void poseObject(EngineObject *o, std::vector<NodeTransform> *nodes, std::vector<Vec3> *positions,
+                std::vector<Vec3> *normals);
 
 // Parses an .ABC file's animation data. Returns nullptr on malformed data.
 std::unique_ptr<ModelInfo> parseModel(const std::vector<uint8_t> &data, std::string *err);

@@ -56,6 +56,10 @@ struct EngineObject {
     int anim = -1;          // current animation, -1 = none
     float animTime = 0;     // ms
     bool animLoop = true, animDone = false, animStarted = false;
+    // FLAG_ANIMTRANSITION: the animation it changed from, frozen where it was
+    // left, blended out over kAnimTransitionMs.
+    int blendAnim = -1;
+    float blendTime = 0, blendElapsed = 0;  // ms
     std::vector<bool> hiddenNodes;
     float worldLight[3] = {-1, -1, -1};  // models: the world's baked light where they stand (smoothed)
     bool traced = false;

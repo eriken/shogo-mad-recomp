@@ -714,7 +714,7 @@ void submitModels(GameSession &g)
         if (o->removed || o->type != OT_MODEL || !(o->flags & FLAG_VISIBLE)) continue;
         const ModelInfo *m = objectModel(o);
         if (!m || m->tris.empty()) continue;
-        poseModel(*m, o->anim, o->animTime, nullptr, &pos, &nrm);
+        poseObject(o, nullptr, &pos, &nrm);
         // The game's model hook: texture on or off, flags and added light for this draw.
         DVector lightAdd(0, 0, 0);
         ModelHookData hook{toHLocal(o), MHF_USETEXTURE, o->flags, &lightAdd};

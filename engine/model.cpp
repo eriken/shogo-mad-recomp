@@ -119,28 +119,64 @@ int ModelInfo::findNode(const char *name) const
     return -1;
 }
 
+namespace {
+
+// The keyframes around `timeMs` and how far between them it is.
+void keysAround(const ModelAnim *a, float timeMs, size_t *k0, size_t *k1, float *f)
+{
+    *k0 = *k1 = 0;
+    *f = 0;
+    if (!a || a->keys.empty()) return;
+    size_t n = a->keys.size();
+    while (*k0 + 1 < n && (float)a->keys[*k0 + 1].time <= timeMs) ++*k0;
+    *k1 = *k0 + 1 < n ? *k0 + 1 : *k0;
+    float t0 = (float)a->keys[*k0].time, t1 = (float)a->keys[*k1].time;
+    *f = t1 > t0 ? std::clamp((timeMs - t0) / (t1 - t0), 0.0f, 1.0f) : 0.0f;
+}
+
+// Each node's transform relative to its parent; nodes the animation doesn't
+// move keep the identity (false when it moves none).
+bool localPose(const ModelInfo &m, const ModelAnim *a, size_t k0, size_t k1, float f, std::vector<NodeTransform> &local)
+{
+    const size_t nNodes = m.nodes.size();
+    if (!a || a->tracks.size() != nNodes) return false;
+    for (size_t i = 0; i < nNodes; ++i) {
+        if (a->tracks[i].empty()) continue;
+        const NodeKey &p = a->tracks[i][k0], &q = a->tracks[i][k1];
+        local[i].pos = p.pos + (q.pos - p.pos) * f;
+        local[i].rot = f > 0 ? quatSlerp(p.rot, q.rot, f) : p.rot;
+    }
+    return true;
+}
+
+}  // namespace
+
 void poseModel(const ModelInfo &m, int anim, float timeMs, std::vector<NodeTransform> *outNodes,
-               std::vector<Vec3> *positions, std::vector<Vec3> *normals)
+               std::vector<Vec3> *positions, std::vector<Vec3> *normals, const PoseBlend *from)
 {
     const size_t nNodes = m.nodes.size();
     std::vector<NodeTransform> local(nNodes), world(nNodes);
     for (NodeTransform &t : local) t.rot = quatIdentity();
     const ModelAnim *a = anim >= 0 && anim < (int)m.anims.size() ? &m.anims[(size_t)anim] : nullptr;
-    // Keyframes around the time.
-    size_t k0 = 0, k1 = 0;
-    float f = 0;
-    if (a && !a->keys.empty()) {
-        size_t n = a->keys.size();
-        while (k0 + 1 < n && (float)a->keys[k0 + 1].time <= timeMs) ++k0;
-        k1 = k0 + 1 < n ? k0 + 1 : k0;
-        float t0 = (float)a->keys[k0].time, t1 = (float)a->keys[k1].time;
-        f = t1 > t0 ? std::clamp((timeMs - t0) / (t1 - t0), 0.0f, 1.0f) : 0.0f;
-    }
-    for (size_t i = 0; i < nNodes; ++i) {
-        if (!a || a->tracks.size() != nNodes || a->tracks[i].empty()) continue;
-        const NodeKey &p = a->tracks[i][k0], &q = a->tracks[i][k1];
-        local[i].pos = p.pos + (q.pos - p.pos) * f;
-        local[i].rot = f > 0 ? quatSlerp(p.rot, q.rot, f) : p.rot;
+    size_t k0, k1;
+    float f;
+    keysAround(a, timeMs, &k0, &k1, &f);
+    localPose(m, a, k0, k1, f, local);
+    // An animation transition: from the old pose to this one, node by node.
+    if (from && from->weight > 0 && from->anim >= 0 && from->anim < (int)m.anims.size()) {
+        const ModelAnim *b = &m.anims[(size_t)from->anim];
+        std::vector<NodeTransform> old(nNodes);
+        for (NodeTransform &t : old) t.rot = quatIdentity();
+        size_t b0, b1;
+        float bf;
+        keysAround(b, from->timeMs, &b0, &b1, &bf);
+        if (localPose(m, b, b0, b1, bf, old)) {
+            const float w = std::min(from->weight, 1.0f);
+            for (size_t i = 0; i < nNodes; ++i) {
+                local[i].pos = local[i].pos + (old[i].pos - local[i].pos) * w;
+                local[i].rot = quatSlerp(local[i].rot, old[i].rot, w);
+            }
+        }
     }
     for (size_t i = 0; i < nNodes; ++i) {
         int parent = m.nodes[i].parent;
@@ -425,10 +461,28 @@ void fireRange(EngineObject *o, const ModelAnim &a, float from, float to, bool i
 
 }  // namespace
 
+void poseObject(EngineObject *o, std::vector<NodeTransform> *nodes, std::vector<Vec3> *positions,
+                std::vector<Vec3> *normals)
+{
+    const ModelInfo *m = objectModel(o);
+    if (!m) return;
+    PoseBlend from;
+    if (o->blendAnim >= 0 && o->blendElapsed < kAnimTransitionMs) {
+        from.anim = o->blendAnim;
+        from.timeMs = o->blendTime;
+        from.weight = 1.0f - o->blendElapsed / kAnimTransitionMs;
+    }
+    poseModel(*m, o->anim, o->animTime, nodes, positions, normals, from.anim >= 0 ? &from : nullptr);
+}
+
 void animateObject(EngineObject *o, float dt, const ModelKeyFn &onKey)
 {
     const ModelInfo *m = objectModel(o);
     if (!m || o->anim < 0 || o->anim >= (int)m->anims.size()) return;
+    if (o->blendAnim >= 0) {
+        o->blendElapsed += dt * 1000.0f;
+        if (o->blendElapsed >= kAnimTransitionMs) o->blendAnim = -1;
+    }
     const ModelAnim &a = m->anims[(size_t)o->anim];
     float len = (float)a.length;
     float from = o->animTime;
@@ -471,7 +525,7 @@ bool objectNodeTransform(EngineObject *o, int node, Vec3 *pos, DRotation *rot)
     const ModelInfo *m = objectModel(o);
     if (!m || node < 0 || node >= (int)m->nodes.size()) return false;
     std::vector<NodeTransform> nodes;
-    poseModel(*m, o->anim, o->animTime, &nodes, nullptr, nullptr);
+    poseObject(o, &nodes, nullptr, nullptr);
     DVector sc = o->scale;
     if (sc.x == 0 && sc.y == 0 && sc.z == 0) sc = DVector(1, 1, 1);
     const NodeTransform &t = nodes[(size_t)node];
@@ -716,10 +770,21 @@ void setModelAnimation(HOBJECT h, HMODELANIM a)
     const ModelInfo *m = objectModel(o);
     static bool trace = getenv("SHOGO_TRACE_ANIM") != nullptr;
     if (trace && m && a < m->anims.size() && o->anim != (int)a)
-        printf("[anim] %s%s -> %s\n", o->clientOnly ? "(client) " : "", o->filename.c_str(), m->anims[a].name.c_str());
+        printf("[anim] %s%s -> %s%s\n", o->clientOnly ? "(client) " : "", o->filename.c_str(), m->anims[a].name.c_str(),
+               (o->flags & FLAG_ANIMTRANSITION) && o->anim >= 0 ? " (200 ms transition)" : "");
     if (!m || a >= m->anims.size()) return;
     // Setting the animation it's already on doesn't restart it.
     if (o->anim == (int)a) return;
+    // FLAG_ANIMTRANSITION: blend from where the old animation was over 200 ms.
+    // (Mid-transition, the new one starts from the old animation's pose, not
+    // the blend on screen.)
+    if ((o->flags & FLAG_ANIMTRANSITION) && o->anim >= 0) {
+        o->blendAnim = o->anim;
+        o->blendTime = o->animTime;
+        o->blendElapsed = 0;
+    } else {
+        o->blendAnim = -1;
+    }
     o->anim = (int)a;
     // The engine resizes a client object to the animation's dims (without collision),
     // unless it opts out with CF_DONTSETDIMS. Server objects keep their dims: the game
