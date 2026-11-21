@@ -597,6 +597,36 @@ DRESULT createAttachment(HOBJECT hParent, HOBJECT hChild, char *node, DVector *o
     return LT_OK;
 }
 
+}  // namespace
+
+std::vector<AttachmentRecord> attachmentRecords()
+{
+    std::vector<AttachmentRecord> out;
+    for (const auto &a : g_attachments) {
+        if (!a->parent || a->parent->removed) continue;
+        out.push_back({a->parent->id, a->child, a->node, a->offset, a->rotOffset});
+    }
+    return out;
+}
+
+void restoreAttachment(EngineObject *parent, EngineObject *child, const AttachmentRecord &r)
+{
+    if (!parent || !child) return;
+    for (const auto &a : g_attachments)
+        if (a->parent == parent && a->child == child->id) return;
+    auto a = std::make_unique<Attachment>();
+    a->parent = parent;
+    a->child = child->id;
+    const ModelInfo *m = objectModel(parent);
+    a->node = (m && r.node < (int)m->nodes.size()) ? r.node : -1;
+    a->offset = r.offset;
+    a->rotOffset = r.rotOffset;
+    placeAttachment(*a);
+    g_attachments.push_back(std::move(a));
+}
+
+namespace {
+
 DRESULT removeAttachment(HATTACHMENT h)
 {
     Attachment *a = toAttachment(h);

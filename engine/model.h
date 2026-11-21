@@ -123,6 +123,17 @@ bool objectNodeTransform(EngineObject *o, int node, Vec3 *pos, DRotation *rot);
 // only, or all of them).
 void updateAttachments(EngineObject *parent = nullptr);
 
+// Attachments as saved games keep them: parent and child by object id.
+struct AttachmentRecord {
+    uint32_t parent = 0, child = 0;
+    int32_t node = -1;
+    DVector offset{};
+    DRotation rotOffset{0, 0, 0, 1};
+};
+std::vector<AttachmentRecord> attachmentRecords();
+// Re-makes a saved attachment (nothing if the two are already attached).
+void restoreAttachment(EngineObject *parent, EngineObject *child, const AttachmentRecord &r);
+
 // GetModelAnimUserDims: the animation's dims (the object's dims if it isn't a model).
 DRESULT modelAnimUserDims(HOBJECT h, DVector *dims, HMODELANIM anim);
 

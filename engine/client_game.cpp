@@ -736,8 +736,9 @@ void submitModels(GameSession &g)
         static const bool traceModels = getenv("SHOGO_TRACE_MODELS") != nullptr;
         if (traceModels && !o->traced) {
             o->traced = true;
-            fprintf(stderr, "[model] %s skin %s (tex %d) color %.2f %.2f %.2f %.2f flags %x\n", o->filename.c_str(),
-                    o->skin.c_str(), tex, o->color[0], o->color[1], o->color[2], o->color[3], o->flags);
+            fprintf(stderr, "[model] %s skin %s (tex %d) color %.2f %.2f %.2f %.2f flags %x scale %.2f %.2f %.2f\n",
+                    o->filename.c_str(), o->skin.c_str(), tex, o->color[0], o->color[1], o->color[2], o->color[3], o->flags,
+                    o->scale.x, o->scale.y, o->scale.z);
         }
         DVector sc = o->scale;
         if (sc.x == 0 && sc.y == 0 && sc.z == 0) sc = DVector(1, 1, 1);

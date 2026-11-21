@@ -1,6 +1,7 @@
 #include "engine/savegame.h"
 
 #include "engine/messages.h"
+#include "engine/model.h"
 #include "engine/objects.h"
 #include "engine/server.h"
 
@@ -267,6 +268,23 @@ DRESULT saveObjects(char *fileName, ObjectList *list, DDWORD param, DDWORD flags
         putStr(out, name);
         putStr(out, value);
     }
+    // Attachments between saved objects (after the console, so saves from
+    // before they were kept still load).
+    std::vector<AttachmentRecord> attachments;
+    for (const AttachmentRecord &a : attachmentRecords()) {
+        auto saved = [&](uint32_t id) {
+            return std::any_of(objs.begin(), objs.end(), [id](EngineObject *o) { return o->id == id; });
+        };
+        if (saved(a.parent) && saved(a.child)) attachments.push_back(a);
+    }
+    out.put<uint32_t>((uint32_t)attachments.size());
+    for (const AttachmentRecord &a : attachments) {
+        out.put(a.parent);
+        out.put(a.child);
+        out.put(a.node);
+        out.put(a.offset);
+        out.put(a.rotOffset);
+    }
     out.magic = 0;
 
     std::string path = savePath(fileName);
@@ -318,6 +336,17 @@ DRESULT restoreObjects(char *fileName, DDWORD param, DDWORD flags)
         std::string name = getStr(in);
         vars.push_back({name, getStr(in)});
     }
+    std::vector<AttachmentRecord> attachments;
+    if (in.pos < in.data.size())
+        for (uint32_t i = 0, n = in.get<uint32_t>(); i < n && in.pos < in.data.size(); ++i) {
+            AttachmentRecord a;
+            a.parent = in.get<uint32_t>();
+            a.child = in.get<uint32_t>();
+            a.node = in.get<int32_t>();
+            a.offset = in.get<DVector>();
+            a.rotOffset = in.get<DRotation>();
+            attachments.push_back(a);
+        }
     in.magic = 0;
     if (records.size() != count) {
         fprintf(stderr, "[save] %s: truncated\n", path.c_str());
@@ -433,6 +462,13 @@ DRESULT restoreObjects(char *fileName, DDWORD param, DDWORD flags)
             ref->object = o;
             g_clientRefs.push_back(std::move(ref));
         }
+    }
+
+    // Attachments (the characters' hand-held weapons).
+    for (const AttachmentRecord &a : attachments) {
+        auto p = byId.find(a.parent), c = byId.find(a.child);
+        if (p != byId.end() && c != byId.end() && !p->second->removed && !c->second->removed)
+            restoreAttachment(p->second, c->second, a);
     }
 
     // 4. Initial updates.
