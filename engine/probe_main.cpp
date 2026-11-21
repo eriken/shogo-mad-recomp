@@ -135,7 +135,7 @@ int main(int argc, char **argv)
     }
     if (paths.size() != 2) {
         fprintf(stderr,
-                "usage: %s [+var value ...] [--frames N] [--size WxH] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME@frame ...] <object.lto.dylib> <cshell.dylib>\n",
+                "usage: %s [+var value ...] [--frames N] [--size WxH] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME[:MSG]@frame ...] <object.lto.dylib> <cshell.dylib>\n",
                 argv[0]);
         return 2;
     }
@@ -207,8 +207,14 @@ int main(int argc, char **argv)
             }
         for (const Trigger &t : triggers)
             if (t.frame == i && shogo::Server::instance)
-                printf("[frame %d] trigger %s: %zu object(s)\n", i, t.name.c_str(),
-                       shogo::Server::instance->triggerObjects(t.name, "TRIGGER"));
+            {
+                // NAME or NAME:MESSAGE (the message defaults to TRIGGER).
+                size_t colon = t.name.find(':');
+                std::string name = t.name.substr(0, colon);
+                std::string msg = colon == std::string::npos ? "TRIGGER" : t.name.substr(colon + 1);
+                printf("[frame %d] trigger %s %s: %zu object(s)\n", i, name.c_str(), msg.c_str(),
+                       shogo::Server::instance->triggerObjects(name, msg.c_str()));
+            }
         for (const KeyHold &k : holds) {
             if (k.from == i) host.keyDown(k.vk, 1);
             if (k.to == i) host.keyUp(k.vk);
