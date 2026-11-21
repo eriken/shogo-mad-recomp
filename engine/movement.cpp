@@ -572,7 +572,7 @@ DDWORD polyTextureFlags(Server &s, HPOLY poly)
     return flags;
 }
 
-int pointContainers(Server &s, const DVector &p, EngineObject **out, int max)
+int pointContainers(Server &s, const DVector &p, EngineObject **out, int max, const DVector &ext)
 {
     // Containers are world models of type OT_CONTAINER. For now a point is
     // inside one when it is inside the model's bounding box.
@@ -580,11 +580,24 @@ int pointContainers(Server &s, const DVector &p, EngineObject **out, int max)
     if (!s.world) return 0;
     for (EngineObject *o : objects().all()) {
         if (o->removed || o->type != OT_CONTAINER || o->bsp < 0 || size_t(o->bsp) >= s.world->models.size()) continue;
-        const WorldBsp &b = s.world->models[size_t(o->bsp)];
+        const WorldBsp &wb = s.world->models[size_t(o->bsp)];
+        // The bounds of its points: the model's stored box is offset by its
+        // translation, which put every moved-in water volume somewhere else.
+        struct {
+            Vec3 boxMin{1e30f, 1e30f, 1e30f}, boxMax{-1e30f, -1e30f, -1e30f};
+        } b;
+        for (const Vec3 &pt : wb.points) {
+            b.boxMin = {std::min(b.boxMin.x, pt.x), std::min(b.boxMin.y, pt.y), std::min(b.boxMin.z, pt.z)};
+            b.boxMax = {std::max(b.boxMax.x, pt.x), std::max(b.boxMax.y, pt.y), std::max(b.boxMax.z, pt.z)};
+        }
+        if (wb.points.empty()) continue;
         Placement pl = placementOf(o);
         Vec3 q = pl.toBuilt(v3(p));
-        if (q.x < b.boxMin.x || q.y < b.boxMin.y || q.z < b.boxMin.z || q.x > b.boxMax.x || q.y > b.boxMax.y ||
-            q.z > b.boxMax.z)
+        // An object's box (half extents `ext`) is in when it overlaps.
+        const float e = std::max({ext.x, ext.y, ext.z});
+        const Vec3 r = pl.identity ? v3(ext) : Vec3{e, e, e};
+        if (q.x + r.x < b.boxMin.x || q.y + r.y < b.boxMin.y || q.z + r.z < b.boxMin.z || q.x - r.x > b.boxMax.x ||
+            q.y - r.y > b.boxMax.y || q.z - r.z > b.boxMax.z)
             continue;
         if (n < max && out) out[n] = o;
         ++n;

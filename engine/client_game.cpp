@@ -889,8 +889,19 @@ void submitPolyGrid(GameSession &g, const EngineObject *o)
 
 void submitPolyGrids(GameSession &g)
 {
-    for (EngineObject *o : objects().all())
-        if (!o->removed && o->type == OT_POLYGRID && (o->flags & FLAG_VISIBLE)) submitPolyGrid(g, o);
+    // FLAG_WASDRAWN tells the game a grid was drawn: its CPolyGridFX only
+    // follows the server object (a water surface on a rising pool) and
+    // animates the waves while that is set. Grids are drawn without culling,
+    // so every visible one counts.
+    for (EngineObject *o : objects().all()) {
+        if (o->removed || o->type != OT_POLYGRID) continue;
+        if (o->flags & FLAG_VISIBLE) {
+            submitPolyGrid(g, o);
+            o->flags |= FLAG_WASDRAWN;
+        } else {
+            o->flags &= ~FLAG_WASDRAWN;
+        }
+    }
 }
 
 Camera cameraFor(const EngineObject *cam)

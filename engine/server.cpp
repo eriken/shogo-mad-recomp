@@ -371,8 +371,11 @@ ObjectList *findNamedObjects(char *name)
 {
     ObjectList *l = createObjectList();
     if (!name || !name[0]) return l;
+    // An object removed this frame is still there until the frame ends, as in
+    // LithTech: KeyFramers that share keys each find them, although the first
+    // to read them removes them (05_lz_minotaur's pool2 raises two pools).
     for (EngineObject *o : objects().all())
-        if (!o->clientOnly && !o->removed && strcasecmp(o->name.c_str(), name) == 0) addObjectToList(l, toHObject(o));
+        if (!o->clientOnly && strcasecmp(o->name.c_str(), name) == 0) addObjectToList(l, toHObject(o));
     return l;
 }
 ObjectList *findObjectsTouchingSphere(DVector *pos, float radius)
@@ -606,8 +609,13 @@ DDWORD getPointContainers(DVector *p, HOBJECT *list, DDWORD max)
 DDWORD getObjectContainers(HOBJECT h, HOBJECT *list, DDWORD *flags, DDWORD max)
 {
     EngineObject *o = O(h);
-    if (!o) return 0;
-    DDWORD n = getPointContainers(&o->pos, list, max);
+    if (!o || !S().world) return 0;
+    // Every container the object's box overlaps (a wading mech's middle can
+    // be above the water while its legs are in it).
+    std::vector<EngineObject *> found(max ? max : 1);
+    DDWORD n = (DDWORD)pointContainers(S(), o->pos, found.data(), int(max), o->dims);
+    for (DDWORD i = 0; i < n; ++i)
+        if (list) list[i] = toHObject(found[size_t(i)]);
     if (flags)
         for (DDWORD i = 0; i < n; ++i) flags[i] = 0;
     return n;

@@ -27,8 +27,9 @@ bool standingOn(Server &server, EngineObject *o, CollisionInfo *info);
 // IntersectSegment / CastRay. clientSide: the query comes from the client.
 bool intersectSegment(Server &server, IntersectQuery *q, IntersectInfo *info, bool clientSide);
 
-// Containers (water, ladders...) that contain the point.
-int pointContainers(Server &server, const DVector &p, EngineObject **out, int max);
+// Containers (water, ladders...) that contain the point, or that a box of
+// half extents `ext` around it overlaps (GetObjectContainers).
+int pointContainers(Server &server, const DVector &p, EngineObject **out, int max, const DVector &ext = DVector(0, 0, 0));
 
 // GetPolyTextureFlags: the surface type stored in the polygon's texture (DTX
 // header, the u32 after the flags: 20 metal, 40 glass, 110 sky...). 0 if unknown.
