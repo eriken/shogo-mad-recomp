@@ -98,6 +98,26 @@ void addBox(std::vector<SweepTri> &out, EngineObject *o)
     }
 }
 
+// A world model's triangles within [mn, mx], placed by `p`.
+void addModelTris(Server &s, EngineObject *o, const Placement &p, const Vec3 &mn, const Vec3 &mx,
+                  std::vector<SweepTri> &out)
+{
+    // Bounds of the query box in the model's build space (a sphere around it, when rotated).
+    Vec3 c = (mn + mx) * 0.5f, e = (mx - mn) * 0.5f;
+    Vec3 bc = p.toBuilt(c);
+    Vec3 be = p.identity ? e : Vec3{length(e), length(e), length(e)};
+    std::vector<int> idx;
+    const CollisionModel &m = s.collisionModels[size_t(o->bsp)];
+    m.query(bc - be, bc + be, idx);
+    for (int i : idx) {
+        const Tri &t = m.tris()[i];
+        SweepTri st;
+        st.tri = {p.toWorld(t.a), p.toWorld(t.b), p.toWorld(t.c), p.normalToWorld(t.n), t.flags, t.hpoly};
+        st.owner = o;
+        out.push_back(st);
+    }
+}
+
 // Everything `mover` could hit within [mn, mx].
 void gather(Server &s, EngineObject *mover, const Vec3 &mn, const Vec3 &mx, std::vector<SweepTri> &out)
 {
@@ -114,21 +134,7 @@ void gather(Server &s, EngineObject *mover, const Vec3 &mn, const Vec3 &mx, std:
             if (!world || o->bsp <= 0 || size_t(o->bsp) >= s.collisionModels.size()) continue;
             if (!(o->flags & FLAG_SOLID) || (o->flags & FLAG_SKYOBJECT) || o->type == OT_CONTAINER) continue;
             if (mover->clientOnly && (o->flags & FLAG_CLIENTNONSOLID)) continue;
-            Placement p = placementOf(o);
-            // Bounds of the query box in the model's build space (a sphere around it, when rotated).
-            Vec3 c = (mn + mx) * 0.5f, e = (mx - mn) * 0.5f;
-            Vec3 bc = p.toBuilt(c);
-            Vec3 be = p.identity ? e : Vec3{length(e), length(e), length(e)};
-            idx.clear();
-            const CollisionModel &m = s.collisionModels[size_t(o->bsp)];
-            m.query(bc - be, bc + be, idx);
-            for (int i : idx) {
-                const Tri &t = m.tris()[i];
-                SweepTri st;
-                st.tri = {p.toWorld(t.a), p.toWorld(t.b), p.toWorld(t.c), p.normalToWorld(t.n), t.flags, t.hpoly};
-                st.owner = o;
-                out.push_back(st);
-            }
+            addModelTris(s, o, placementOf(o), mn, mx, out);
             continue;
         }
         if (!(mover->flags & FLAG_SOLID) || !blocks(mover, o)) continue;
@@ -200,6 +206,58 @@ Vec3 slide(Server &s, EngineObject *o, const std::vector<SweepTri> &tris, const 
     return collideAndSlide(tris, radii, from, move, &hits);
 }
 
+
+bool solidWorldModel(Server &s, const EngineObject *o)
+{
+    return isWorldModel(o) && o->type != OT_CONTAINER && (o->flags & FLAG_SOLID) && !(o->flags & FLAG_SKYOBJECT) &&
+           o->bsp > 0 && size_t(o->bsp) < s.collisionModels.size();
+}
+
+}  // namespace
+
+void moveObject(Server &s, EngineObject *o, const DVector &target, bool teleport);
+
+namespace {
+
+// A solid world model moving from `from` (already at its new place) pushes
+// what it runs into along with it: a lever swinging down onto the player, a
+// lift rising under them. Without it the model ends up around the object,
+// whose every move then starts inside it, and it can't move at all.
+void pushObjects(Server &s, EngineObject *model, const DVector &from)
+{
+    const Vec3 delta = v3(model->pos) - v3(from);
+    const float dist = length(delta);
+    if (dist < 1e-4f) return;
+    std::vector<EngineObject *> candidates;
+    for (EngineObject *p : objects().all()) {
+        if (p == model || p->removed || isWorldModel(p) || p->type == OT_CONTAINER) continue;
+        if (!(p->flags & FLAG_SOLID) || (p->flags & FLAG_GOTHRUWORLD)) continue;
+        if (p->clientOnly && (model->flags & FLAG_CLIENTNONSOLID)) continue;
+        if (p->dims.x <= 0 && p->dims.y <= 0 && p->dims.z <= 0) continue;
+        candidates.push_back(p);
+    }
+    // Where the model is now, swept back from a little ahead of each object
+    // (along the move): a hit before the object's own place means the model
+    // has run into it, or into it further (an object walking into a moving
+    // lever starts each frame a little inside it, which a sweep from its own
+    // place can't see). Push it out to where the sweep stopped.
+    const Placement now = placementOf(model);
+    const Vec3 dir = delta * (1.0f / dist);
+    const float reach = dist + 2.0f;
+    std::vector<SweepTri> tris;
+    for (EngineObject *p : candidates) {
+        if (p->magic != EngineObject::kMagic || p->removed) continue;
+        const Vec3 radii = radiiOf(p), at = v3(p->pos), ahead = at + dir * reach;
+        Vec3 mn, mx;
+        queryBox(ahead, at, radii, &mn, &mx);
+        tris.clear();
+        addModelTris(s, model, now, mn, mx, tris);
+        if (tris.empty()) continue;
+        SweepHit h = sweepEllipsoid(tris, radii, ahead, dir * -reach);
+        if (!h.hit || h.distance >= reach - 0.01f) continue;
+        moveObject(s, p, dv(at + dir * (reach - h.distance)), false);
+    }
+}
 }  // namespace
 
 void moveObject(Server &s, EngineObject *o, const DVector &target, bool teleport)
@@ -209,8 +267,10 @@ void moveObject(Server &s, EngineObject *o, const DVector &target, bool teleport
     bool collide = !teleport && (s.world != nullptr) && !isWorldModel(o);
     if (collide && (o->flags & FLAG_GOTHRUWORLD) && !(o->flags & FLAG_SOLID)) collide = false;
     if (!collide) {
+        const DVector was = o->pos;
         o->pos = target;
         if (!isWorldModel(o)) overlapTouches(s, o);
+        else if (!teleport && s.world && solidWorldModel(s, o)) pushObjects(s, o, was);
         return;
     }
     Vec3 move = to - from;

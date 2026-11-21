@@ -198,6 +198,10 @@ void sweepTriangle(const Vec3 &p1, const Vec3 &p2, const Vec3 &p3, const Vec3 &n
         for (const Vec3 *p : {&p1, &p2, &p3}) {
             float b = 2.0f * dot(vel, base - *p);
             float c = dot(*p - base, *p - base) - 1.0f;
+            // Already over the corner and leaving it: the root ahead is where
+            // we come off it, not a hit (an object pushed into a lever's edge
+            // could never walk away).
+            if (c < 0 && b >= 0) continue;
             if (lowestRoot(velSq, b, c, t, &r)) {
                 t = r;
                 found = true;
@@ -211,6 +215,8 @@ void sweepTriangle(const Vec3 &p1, const Vec3 &p2, const Vec3 &p3, const Vec3 &n
             float a = edgeSq * -velSq + edgeDotVel * edgeDotVel;
             float b = edgeSq * (2 * dot(vel, btv)) - 2 * edgeDotVel * edgeDotBtv;
             float c = edgeSq * (1 - dot(btv, btv)) + edgeDotBtv * edgeDotBtv;
+            // Already over the edge's line (c > 0 here) and leaving it: as above.
+            if (c > 0 && b <= 0) continue;
             if (lowestRoot(a, b, c, t, &r)) {
                 float f = (edgeDotVel * r - edgeDotBtv) / edgeSq;
                 if (f >= 0 && f <= 1) {
