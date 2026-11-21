@@ -923,6 +923,9 @@ static void testMusic(const std::string &dir)
         CHECK(p && p->name == "a1" && p->length == 3072 && p->notes.size() == 24);
     }
     CHECK(m.addToPlayList("list", "a1.sec") && m.addToPlayList("list", "c1.sec"));
+    // A cut-off name (the levels' AmbientList strings end mid-name) is left
+    // out, and the list is still set up.
+    CHECK(m.addToPlayList("list", "a3.se"));
     CHECK(m.playList("list", "sta.sec", false, MUSIC_IMMEDIATE));
     CHECK(m.currentSection() == "sta.sec");
     // sta + a1 + c1: 12 measures at 105 bpm.

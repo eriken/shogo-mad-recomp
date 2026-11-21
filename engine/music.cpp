@@ -412,8 +412,12 @@ void MusicPlayer::destroyAllSongs()
 
 bool MusicPlayer::addToPlayList(const char *list, const char *song)
 {
-    if (!list || !song || !loadSong(song)) return false;
-    m_lists[lower(list)].push_back(song);
+    if (!list || !song) return false;
+    // A section that can't be loaded is left out, and the list still counts
+    // as set up: the levels' AmbientList strings are cut off mid-name
+    // ("... a3.se"), and the game gives up on all its play lists, so on every
+    // music cue, when one add fails.
+    if (loadSong(song)) m_lists[lower(list)].push_back(song);
     return true;
 }
 
