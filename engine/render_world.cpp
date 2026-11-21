@@ -94,7 +94,13 @@ void WorldRenderer::clearDynamic()
 
 void WorldRenderer::recycle(std::vector<DrawPoly> &list)
 {
+    // Not every polygon came from takeVerts (effects build their own lists),
+    // so keeping them all would grow the pool every frame without end: an
+    // hour in a level with water grids held tens of gigabytes. Keep enough
+    // for a busy frame and let the rest go.
+    constexpr size_t kMaxSpare = 16384;
     for (DrawPoly &p : list) {
+        if (m_spareVerts.size() >= kMaxSpare) break;
         p.verts.clear();
         m_spareVerts.push_back(std::move(p.verts));
     }
