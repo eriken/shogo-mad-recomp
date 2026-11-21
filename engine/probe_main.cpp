@@ -79,6 +79,8 @@ int main(int argc, char **argv)
     std::vector<Teleport> teleports;  // puts the player (and its client mover) somewhere
     struct Trigger { std::string name; int frame; };
     std::vector<Trigger> triggers;  // a "TRIGGER" message from the player to named objects
+    struct Watch { std::string name; int every; };
+    std::vector<Watch> watches;  // --watch NAME@N: print named objects' positions every N frames
     std::vector<const char *> paths;
     std::vector<std::string> conVars;  // "+name value" pairs, set before the game starts
     int width = 640, height = 480;      // --size: the game's resolution (the app: 800 wide, the display's shape)
@@ -131,11 +133,15 @@ int main(int argc, char **argv)
             std::string arg = argv[++i];
             size_t at = arg.rfind('@');
             if (at != std::string::npos) triggers.push_back({arg.substr(0, at), atoi(arg.c_str() + at + 1)});
+        } else if (!strcmp(argv[i], "--watch") && i + 1 < argc) {
+            std::string arg = argv[++i];
+            size_t at = arg.rfind('@');
+            watches.push_back({arg.substr(0, at), at == std::string::npos ? 30 : std::max(1, atoi(arg.c_str() + at + 1))});
         } else paths.push_back(argv[i]);
     }
     if (paths.size() != 2) {
         fprintf(stderr,
-                "usage: %s [+var value ...] [--frames N] [--size WxH] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME[:MSG]@frame ...] <object.lto.dylib> <cshell.dylib>\n",
+                "usage: %s [+var value ...] [--frames N] [--size WxH] [--screenshot out.png] [--audio-out out.wav] [--key VK@frame ...] [--click BUTTON@frame ...] [--wheel NOTCHES@frame ...] [--hold VK@from-to ...] [--mouse DX,DY@from-to ...] [--trigger NAME[:MSG]@frame ...] [--watch NAME@every ...] <object.lto.dylib> <cshell.dylib>\n",
                 argv[0]);
         return 2;
     }
@@ -233,6 +239,13 @@ int main(int argc, char **argv)
             shogo::mixer().mix(buf, shogo::Mixer::kRate / 30);
             if (audioOut) audio.insert(audio.end(), buf, buf + shogo::Mixer::kRate / 30 * 2);
         }
+        for (const Watch &w : watches)
+            if (i % w.every == 0)
+                for (shogo::EngineObject *o : shogo::objects().all())
+                    if (!o->clientOnly && o->name == w.name)
+                        printf("[frame %d] %s pos %.1f %.1f %.1f vel %.1f %.1f %.1f flags %x%s\n", i, o->name.c_str(), o->pos.x,
+                               o->pos.y, o->pos.z, o->velocity.x, o->velocity.y, o->velocity.z, unsigned(o->flags),
+                               o->removed ? " removed" : "");
         if (getenv("SHOGO_TRACE_PLAYER") && host.session.server.client.object) {
             const DVector &p = host.session.server.client.object->pos;
             shogo::EngineObject *po = host.session.server.client.object;
