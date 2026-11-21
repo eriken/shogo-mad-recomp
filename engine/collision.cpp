@@ -158,9 +158,11 @@ bool pointInTriangle(const Vec3 &p, const Vec3 &a, const Vec3 &b, const Vec3 &c)
 void sweepTriangle(const Vec3 &p1, const Vec3 &p2, const Vec3 &p3, const Vec3 &n, const Vec3 &base, const Vec3 &vel,
                    int index, ESpaceHit &best)
 {
-    // One-sided: only triangles facing against the motion.
+    // One-sided: only triangles facing against the motion. A move along the
+    // plane, into it only by rounding, doesn't count: sliding along a ramp
+    // we're resting on, every step met the ramp again at t = 0.
     float nDotVel = dot(n, vel);
-    if (nDotVel >= 0) return;
+    if (nDotVel >= -1e-5f * length(vel)) return;
     float planeD = -dot(n, p1);
     float dist = dot(n, base) + planeD;
     float t0, t1;
@@ -338,8 +340,15 @@ Vec3 collideAndSlide(const std::vector<SweepTri> &tris, const Vec3 &radii, const
         if (depth == 0) {
             firstPlaneNormal = slideNormal;
         } else if (depth == 1) {
-            Vec3 crease = normalized(cross(firstPlaneNormal, slideNormal));
-            if (length(crease) > 0.5f) newVel = crease * dot(newVel, crease);
+            // (Only two planes at an angle have one: the same plane met again
+            // gives a cross product of nothing but rounding, which normalized
+            // points anywhere. On the Avernus ramp toward the museum it ran
+            // along z, and every step downhill was thrown away.)
+            Vec3 c = cross(firstPlaneNormal, slideNormal);
+            if (length(c) > 0.1f) {
+                Vec3 crease = normalized(c);
+                newVel = crease * dot(newVel, crease);
+            }
         }
         pos = newBase;
         vel = newVel;
