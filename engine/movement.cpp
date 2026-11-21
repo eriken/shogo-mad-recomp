@@ -397,6 +397,27 @@ bool standingOn(Server &s, EngineObject *o, CollisionInfo *info)
             hpoly = t.tri.hpoly;
         }
     }
+    // Nothing under the middle: we hang over a ledge, resting on its lip.
+    // What we stand on is still the ledge's floor, the one the lip belongs
+    // to (just inside it, away from our middle); its curve under us would
+    // read as a slope and slide a mech back off a ledge it jumped onto.
+    if (nearest >= 2.0f && normal.y < 0.76f) {
+        Vec3 away{h.point.x - from.x, 0, h.point.z - from.z};
+        float len = length(away);
+        if (len > 0.01f) {
+            Vec3 p = h.point + away * (0.5f / len);
+            for (const SweepTri &t : tris) {
+                float f;
+                if (t.tri.n.y > 0.7f && segmentTriangle(t.tri, p + Vec3{0, 1, 0}, p - Vec3{0, 1, 0}, false, &f)) {
+                    normal = t.tri.n;
+                    point = t.tri.a;
+                    owner = t.owner;
+                    hpoly = t.tri.hpoly;
+                    break;
+                }
+            }
+        }
+    }
     if (info) {
         info->m_Plane.m_Normal = dv(normal);
         info->m_Plane.m_Dist = dot(normal, point);
