@@ -10,7 +10,10 @@
 
 #include <dlfcn.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdlib>
+#include <ctime>
 #include <cstring>
 
 namespace shogo {
@@ -144,8 +147,40 @@ void GameHost::stopClient()
     if (clientShell->OnEngineTerm) clientShell->OnEngineTerm(clientShell);
 }
 
+// F12: appends where the player and camera are to positions.txt in the game
+// folder, so a screenshot's place in the level can be found again (the probe's
+// --teleport and --mouse arguments that get back there are on the line too).
+static void logPosition(GameSession &g)
+{
+    Server *s = Server::instance;
+    const DVector &c = g.lastCameraPos, &f = g.lastCameraForward;
+    const float yaw = std::atan2(f.x, f.z) * 180.0f / 3.14159265f;  // 0 = +z
+    const float pitch = std::asin(std::clamp(f.y, -1.0f, 1.0f)) * 180.0f / 3.14159265f;
+    DVector p = c;
+    if (s && s->client.object) p = s->client.object->pos;
+    char when[32] = "";
+    time_t now = time(nullptr);
+    strftime(when, sizeof when, "%Y-%m-%d %H:%M:%S", localtime(&now));
+    std::string world = s ? s->worldName : "?";
+    if (world.size() > 4 && strcasecmp(world.c_str() + world.size() - 4, ".dat") == 0) world.resize(world.size() - 4);
+    char line[512];
+    snprintf(line, sizeof line,
+             "%s %s player (%.1f, %.1f, %.1f) camera (%.1f, %.1f, %.1f) yaw %.1f pitch %.1f"
+             "  probe: +runworld %s --teleport %.0f,%.0f,%.0f@N --mouse %.0f,%.0f@N-N\n",
+             when, world.c_str(), p.x, p.y, p.z, c.x, c.y, c.z, yaw, pitch, world.c_str(), p.x, p.y, p.z, yaw * 690.0f / 180.0f, pitch * 690.0f / 180.0f);
+    if (FILE *out = fopen("positions.txt", "a")) {
+        fputs(line, out);
+        fclose(out);
+    }
+    fputs(line, stderr);
+}
+
 void GameHost::keyDown(int vk, int rep)
 {
+    if (vk == 0x7B) {  // VK_F12: the game binds nothing to it
+        if (rep <= 1) logPosition(session);
+        return;
+    }
     if (rep <= 1) session.input.keyDown(scanCodeFromVK(vk));
     if (getenv("SHOGO_TRACE_INPUT"))
         printf("[input] key vk 0x%02X -> scan %d, forward=%d enabled=%d\n", vk, scanCodeFromVK(vk), session.input.isCommandOn(0),
@@ -154,6 +189,7 @@ void GameHost::keyDown(int vk, int rep)
 }
 void GameHost::keyUp(int vk)
 {
+    if (vk == 0x7B) return;  // F12 (logPosition)
     session.input.keyUp(scanCodeFromVK(vk));
     clientShell->OnKeyUp(clientShell, vk);
 }

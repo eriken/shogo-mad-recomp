@@ -54,6 +54,8 @@ public:
     std::vector<int> commandsOn;  // for OnCommandOn / OnCommandOff edges
     const WorldData *renderedWorld = nullptr;
     bool enteredWorld = false;
+    // The last camera drawn (F12 writes it to positions.txt).
+    DVector lastCameraPos{}, lastCameraForward{0, 0, 1};
     // Command-line variables: lower-case name -> value before (absent: none).
     std::map<std::string, std::optional<std::string>> commandLineVars;
 };

@@ -930,6 +930,8 @@ DRESULT renderCamera(HLOCALOBJ h)
         g.renderedWorld = g.server.world.get();
     }
     Camera c = cameraFor(cam);
+    g.lastCameraPos = DVector(c.pos.x, c.pos.y, c.pos.z);
+    g.lastCameraForward = DVector(c.forward.x, c.forward.y, c.forward.z);
     submitModels(g);
     submitPolyGrids(g);
     submitEffects(g.renderer, *g.ctx->resources, c.pos, c.right, c.up);
