@@ -372,6 +372,11 @@ bool GpuBackend::init(SDL_GPUDevice *device, GpuScreen *screen, const GpuSetting
     pi.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
     pi.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
     pi.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;  // sky boxes are seen from inside
+    // Clip at the near plane (clip z = nearZ, w = depth). SDL's default
+    // clamps depth instead, which leaves polygons reaching behind the camera
+    // unclipped: the sky's ground quad in 05_LZ_Minotaur then smeared one
+    // texel over the whole sky at some view angles.
+    pi.rasterizer_state.enable_depth_clip = true;
     pi.target_info.color_target_descriptions = &ct;
     pi.target_info.num_color_targets = 1;
     pi.target_info.has_depth_stencil_target = true;
