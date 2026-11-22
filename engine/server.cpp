@@ -630,6 +630,18 @@ DRESULT vSetObjectDims(void *, HOBJECT h, DVector *d)
     o->dims = *d;
     return LT_OK;
 }
+// SetObjectDims2: as SetObjectDims, but taller only where there's room, out of
+// the floor. The game counts on that: ducking moves the
+// player down by the height it loses, and standing back up is this call, which
+// failing keeps the player ducked. Grown in place, a mech that had ducked stood
+// with its feet 10 units into the floor, and walking like that slipped under
+// the Avernus airshafts hatch and wedged there.
+DRESULT vSetObjectDims2(void *, HOBJECT h, DVector *d)
+{
+    EngineObject *o = O(h);
+    if (!o || !d) return LT_ERROR;
+    return growDims(S(), o, *d) ? LT_OK : LT_ERROR;
+}
 DRESULT vGetVelocity(void *, HOBJECT h, DVector *v) { EngineObject *o = O(h); if (!o || !v) return LT_ERROR; *v = o->velocity; return LT_OK; }
 DRESULT vSetVelocity(void *, HOBJECT h, DVector *v) { EngineObject *o = O(h); if (!o || !v) return LT_ERROR; o->velocity = *v; return LT_OK; }
 DRESULT vGetAccel(void *, HOBJECT h, DVector *v) { EngineObject *o = O(h); if (!o || !v) return LT_ERROR; *v = o->accel; return LT_OK; }
@@ -928,7 +940,7 @@ void Server::install(ServerDE *d, ClassDef **defs, int n)
     HOOK("SetNetFlags", vSetNetFlags);
     HOOK("GetObjectDims", vGetObjectDims);
     HOOK("SetObjectDims", vSetObjectDims);
-    HOOK("SetObjectDims2", vSetObjectDims);
+    HOOK("SetObjectDims2", vSetObjectDims2);
     HOOK("GetVelocity", vGetVelocity);
     HOOK("SetVelocity", vSetVelocity);
     HOOK("GetAcceleration", vGetAccel);

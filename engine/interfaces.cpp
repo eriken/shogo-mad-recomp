@@ -116,8 +116,14 @@ public:
     {
         EngineObject *o = toObject(h);
         if (!o || !d) return LT_ERROR;
-        o->dims = *d;
-        return LT_OK;
+        // The player's mover goes to a tiny cube and back up to its size on
+        // every animation change, so as not to "clip thru stuff": out of the
+        // floor, where it fits (it tries again each frame where it doesn't).
+        if (!Server::instance) {
+            o->dims = *d;
+            return LT_OK;
+        }
+        return growDims(*Server::instance, o, *d) ? LT_OK : LT_ERROR;
     }
     DRESULT MoveObject(HOBJECT h, DVector *p, DDWORD flags) override
     {

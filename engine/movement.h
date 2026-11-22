@@ -24,6 +24,12 @@ DVector integrateMotion(Server &server, EngineObject *o, float dt, float groundF
 // What the object rests on (a short sweep downwards).
 bool standingOn(Server &server, EngineObject *o, CollisionInfo *info);
 
+// Sets an object's dims the way the engine does when they grow taller: from
+// where it is, lifted out of the floor it would then be in (by no more than it
+// grows), and only where there's room above for that. Fails, leaving the dims
+// as they were, where there isn't.
+bool growDims(Server &server, EngineObject *o, const DVector &newDims);
+
 // IntersectSegment / CastRay. clientSide: the query comes from the client.
 bool intersectSegment(Server &server, IntersectQuery *q, IntersectInfo *info, bool clientSide);
 

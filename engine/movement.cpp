@@ -428,6 +428,38 @@ bool standingOn(Server &s, EngineObject *o, CollisionInfo *info)
     return true;
 }
 
+bool growDims(Server &s, EngineObject *o, const DVector &newDims)
+{
+    const float grow = newDims.y - o->dims.y;
+    if (grow <= 0 || !s.world || isWorldModel(o) || (o->flags & FLAG_GOTHRUWORLD) || !(o->flags & FLAG_SOLID) ||
+        (o->flags & FLAG_POINTCOLLIDE)) {
+        o->dims = newDims;
+        return true;
+    }
+    const DVector oldDims = o->dims;
+    const Vec3 at = v3(o->pos);
+    // Grown in place, its bottom goes up to `grow` further down, maybe into
+    // the floor: where it lands, at its full size, coming down from `grow`
+    // higher (moving down, it passes out of a ceiling it starts in).
+    o->dims = newDims;
+    const Vec3 radii = radiiOf(o);
+    Vec3 mn, mx;
+    queryBox(at - Vec3{0, grow, 0}, at + Vec3{0, grow, 0}, radii, &mn, &mx);
+    std::vector<SweepTri> tris;
+    gather(s, o, mn, mx, tris);
+    SweepHit down = sweepEllipsoid(tris, radii, at + Vec3{0, grow, 0}, {0, -grow, 0});
+    const float lift = down.hit ? grow - std::max(0.0f, down.distance - 0.01f) : 0.0f;
+    // And room above for that lift (moving up, it passes out of the floor).
+    if (lift > 0.01f) {
+        if (sweepEllipsoid(tris, radii, at, {0, lift, 0}).hit) {
+            o->dims = oldDims;
+            return false;
+        }
+        o->pos.y += lift;
+    }
+    return true;
+}
+
 bool intersectSegment(Server &s, IntersectQuery *q, IntersectInfo *info, bool clientSide)
 {
     if (!q || !info || !s.world) return false;
