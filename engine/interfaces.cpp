@@ -153,7 +153,20 @@ public:
         if (!info || !Server::instance) return LT_ERROR;
         EngineObject *o = toObject(info->m_hObject);
         if (!o) return LT_ERROR;
-        info->m_Offset = integrateMotion(*Server::instance, o, info->m_dt);
+        // Friction on the ground for the client-moved player. Our reading, the
+        // engine's own model isn't known: without any, a vehicle (which the
+        // game leaves to engine friction; on foot it brakes itself) coasted at
+        // full speed for ever and skated round corners. Half the server
+        // objects' coefficient times gravity (a vehicle stops from full speed
+        // in about half a second, a little looser than the game's own braking
+        // on foot), and not against the push: on foot (coefficient 5)
+        // friction like theirs would outweigh the walking acceleration (1500).
+        Server &s = *Server::instance;
+        float groundFriction = 0.0f;
+        if ((o->flags & FLAG_GRAVITY) && o->friction > 0.0f && (o->velocity.x != 0 || o->velocity.z != 0) &&
+            standingOn(s, o, nullptr))
+            groundFriction = o->friction * std::fabs(s.globalForce.y) * 0.5f;
+        info->m_Offset = integrateMotion(s, o, info->m_dt, groundFriction, true);
         return LT_OK;
     }
     DRESULT MovePushObjects(HOBJECT h, DVector &p, HOBJECT *, DDWORD) override { return MoveObject(h, &p, 0); }
