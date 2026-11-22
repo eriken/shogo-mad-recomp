@@ -367,7 +367,7 @@ void moveObject(Server &s, EngineObject *o, const DVector &target, bool teleport
     }
 }
 
-DVector integrateMotion(Server &s, EngineObject *o, float dt, float groundFriction, bool spareThePush)
+DVector integrateMotion(Server &s, EngineObject *o, float dt, float groundFriction)
 {
     DVector a = o->accel;
     if (o->flags & FLAG_GRAVITY) {
@@ -382,20 +382,10 @@ DVector integrateMotion(Server &s, EngineObject *o, float dt, float groundFricti
         // Sideways: speed up, then lose groundFriction * dt of speed (stopping at
         // zero, so a push weaker than the friction doesn't move it at all), and
         // move by the average of the old and new velocity.
-        // spareThePush: the part along the push is left alone.
-        float push = std::sqrt(o->accel.x * o->accel.x + o->accel.z * o->accel.z);
-        float px = 0, pz = 0, along = 0;
-        if (spareThePush && push > 0.0f) {
-            px = o->accel.x / push;
-            pz = o->accel.z / push;
-            along = nv.x * px + nv.z * pz;
-            nv.x -= along * px;
-            nv.z -= along * pz;
-        }
         float speed = std::sqrt(nv.x * nv.x + nv.z * nv.z), drop = groundFriction * dt;
         float keep = speed > drop ? 1.0f - drop / speed : 0.0f;
-        nv.x = nv.x * keep + along * px;
-        nv.z = nv.z * keep + along * pz;
+        nv.x *= keep;
+        nv.z *= keep;
         offset.x = 0.5f * (v.x + nv.x) * dt;
         offset.z = 0.5f * (v.z + nv.z) * dt;
     }

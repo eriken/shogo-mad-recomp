@@ -19,11 +19,7 @@ void moveObject(Server &server, EngineObject *o, const DVector &target, bool tel
 // Integrates velocity, acceleration and gravity over dt; returns the offset to apply.
 // groundFriction > 0 (units/s^2): the object rests on the ground, and its sideways
 // speed (after this frame's acceleration) drops by that much per second, to zero.
-// spareThePush: only the part of it across the object's own sideways
-// acceleration drops (the player drives with acceleration; friction that
-// fought it would stop him walking).
-DVector integrateMotion(Server &server, EngineObject *o, float dt, float groundFriction = 0.0f,
-                        bool spareThePush = false);
+DVector integrateMotion(Server &server, EngineObject *o, float dt, float groundFriction = 0.0f);
 
 // What the object rests on (a short sweep downwards).
 bool standingOn(Server &server, EngineObject *o, CollisionInfo *info);
