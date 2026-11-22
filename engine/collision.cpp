@@ -309,13 +309,19 @@ Vec3 collideAndSlide(const std::vector<SweepTri> &tris, const Vec3 &radii, const
             contact = contact - dir * veryClose;
         }
         Vec3 slideNormal = normalized(newBase - contact);
-        // Walkers: a steep upward face is a wall, slid along horizontally
-        // (otherwise sliding creeps up it and gravity pulls back down).
+        // Walkers: a steep upward face walked into is a wall, slid along
+        // horizontally (otherwise sliding creeps up it and gravity pulls back
+        // down). Only walked into: a fall onto it (resting on the edge of the
+        // Avernus tunnel curb) runs along a flattened wall, neither stopped
+        // nor slid off, and gravity piled up speed for ever, which the head
+        // bob shows. Falling, it slides down the face.
         if (wallNormalY > 0) {
             Vec3 world = normalized(div(slideNormal, radii));
             if (world.y > 0 && world.y < wallNormalY) {
                 Vec3 flat = normalized(Vec3{world.x, 0, world.z});
-                if (length(flat) > 0.5f) slideNormal = normalized(mul(flat, radii));
+                Vec3 v = mul(vel, radii);
+                if (length(flat) > 0.5f && dot(Vec3{v.x, 0, v.z}, flat) < 0)
+                    slideNormal = normalized(mul(flat, radii));
             }
         }
         if (hits) {
@@ -413,11 +419,11 @@ Vec3 walkMove(const std::vector<SweepTri> &tris, const Vec3 &radii, const Vec3 &
     for (const SweepHit &h : hits)
         if (std::fabs(h.normal.y) < 0.7f) wall = true;
     if (wall && wanted > 0.01f) {
-        std::vector<SweepHit> stepHits;
+        std::vector<SweepHit> stepHits, acrossHits;
         Vec3 up = collideAndSlide(tris, radii, from, {0, stepHeight, 0}, nullptr);
         // Level across: riding up the curve of a lip would climb past the
         // step height.
-        Vec3 across = collideAndSlide(tris, radii, up, horiz, nullptr, 1.01f);
+        Vec3 across = collideAndSlide(tris, radii, up, horiz, &acrossHits, 1.01f);
         float drop = (up.y - from.y) + std::max(0.0f, -move.y) + 0.5f;
         // Straight down to the first contact (sliding would roll us back off
         // a lip).
@@ -449,6 +455,13 @@ Vec3 walkMove(const std::vector<SweepTri> &tris, const Vec3 &radii, const Vec3 &
         // the step (the slide would stop at its riser).
         if (landed && (stepDist > slideDist + 0.5f || (onStep && stepDist + 0.01f >= slideDist))) {
             end = down;
+            // The walls met on the way across stop the speed going into them,
+            // as the slide's would have. Dropped, a mech perched on a narrow
+            // ledge, pushing at the wall behind it (the Avernus tunnel curb),
+            // kept its running speed without moving, and the head bob, which
+            // goes by speed, bobbed it in place.
+            for (const SweepHit &h : acrossHits)
+                if (std::fabs(h.normal.y) < 0.7f) stepHits.push_back(h);
             hits = std::move(stepHits);
         }
     }
