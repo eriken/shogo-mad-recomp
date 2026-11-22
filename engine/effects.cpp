@@ -367,7 +367,8 @@ void drawSprite(WorldRenderer &r, const ResourceFS &fs, EngineObject *o, const V
     if (s->fps > 0 && s->frames.size() > 1)
         frame = (size_t)(o->animTime * 0.001f * s->fps) % s->frames.size();
     int tw = 1, th = 1;
-    int tex = r.texture(s->frames[frame], &tw, &th);
+    bool masked = false;
+    int tex = r.texture(s->frames[frame], &tw, &th, &masked);
     if (tex < 0) return;
     DVector sc = o->scale;
     if (sc.x == 0 && sc.y == 0) sc = DVector(1, 1, 1);
@@ -389,6 +390,11 @@ void drawSprite(WorldRenderer &r, const ResourceFS &fs, EngineObject *o, const V
     float alpha = o->color[3];
     if (s->translucent) blend = WorldRenderer::Additive;
     else if (alpha < 0.99f) blend = WorldRenderer::Alpha;
+    // A sprite marked neither transparent nor translucent is still see-through
+    // where its frame has an alpha mask: those are glows (the Mac-10's muzzle
+    // flash, flares, the spot light), drawn as black squares when opaque. The
+    // unmasked ones (consoles, switches, signs) are solid panels.
+    else if (masked && !s->transparent) blend = WorldRenderer::Alpha;
     // Never in the "really close" (view weapon) pass: on sprites that flag bit is
     // FLAG_SPRITEBIAS, handled above, and the close pass draws over the walls.
     quad(r, c, ax, ay, tex, tw, th, o->color[0], o->color[1], o->color[2], blend, alpha,

@@ -302,11 +302,12 @@ void WorldRenderer::addDynamic(DrawPoly poly, bool reallyClose)
     (reallyClose ? m_close : poly.blend != Opaque ? m_blended : m_dynamic).push_back(std::move(poly));
 }
 
-int WorldRenderer::texture(const std::string &name, int *w, int *h)
+int WorldRenderer::texture(const std::string &name, int *w, int *h, bool *hasAlpha)
 {
     int id = m_fs && !name.empty() ? textureIndex(name, *m_fs) : -1;
     if (w) *w = id >= 0 ? m_res.textures[(size_t)id].w : 1;
     if (h) *h = id >= 0 ? m_res.textures[(size_t)id].h : 1;
+    if (hasAlpha) *hasAlpha = id >= 0 && m_res.textures[(size_t)id].hasAlpha;
     return id;
 }
 

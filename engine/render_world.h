@@ -83,7 +83,7 @@ public:
     // dst already shows, with a fresh depth buffer (RenderObjects).
     void renderDynamic(Surface &dst, const Camera &cam);
     // A texture (DTX or SPR) for dynamic polygons; -1 if missing. Size in w/h.
-    int texture(const std::string &name, int *w = nullptr, int *h = nullptr);
+    int texture(const std::string &name, int *w = nullptr, int *h = nullptr, bool *hasAlpha = nullptr);
 
     // The player start (first GameStartPoint), handy for viewers.
     bool startPoint(Camera &cam) const;
