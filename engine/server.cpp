@@ -27,6 +27,18 @@ namespace {
 Server &S() { return *Server::instance; }
 EngineObject *O(HOBJECT h) { return toObject(h); }
 
+// When an object asking to be updated `delay` seconds from `now` gets its update.
+// The game asks for 0.01 or 0.001 to mean "every frame", which it did at the
+// frame rates of its day, and moves by speed times GetFrameTime per update; above
+// 100 fps a 0.01 skipped frames, and AIs crept (Baku ran at half speed at 120 fps
+// and reached his cave-in after the cutscene had cut away). A delay under a 60 fps
+// frame now means the next frame, as it did at 60 fps or less.
+double updateTime(double now, double delay)
+{
+    if (delay <= 0) return 0;
+    return delay < 1.0 / 60.0 ? now + 1e-6 : now + delay;
+}
+
 std::string lower(std::string s)
 {
     for (char &c : s) c = (char)tolower((unsigned char)c);
@@ -417,7 +429,7 @@ char *getObjectName(HOBJECT h)
 void setNextUpdate(HOBJECT h, DFLOAT t)
 {
     if (EngineObject *o = O(h)) {
-        o->nextUpdate = t > 0 ? S().time + t : 0;
+        o->nextUpdate = updateTime(S().time, t);
         if (t > 0) o->active = true;
     }
 }
@@ -1033,7 +1045,7 @@ EngineObject *Server::createObject(ClassDef *cls, ObjectCreateStruct *ocs, float
     o->skin = ocs->m_SkinName;
     o->name = ocs->m_Name;
     o->deactivationTime = ocs->m_fDeactivationTime;
-    o->nextUpdate = ocs->m_NextUpdate > 0 ? time + ocs->m_NextUpdate : 0;
+    o->nextUpdate = updateTime(time, ocs->m_NextUpdate);
     if (o->type == OT_WORLDMODEL || o->type == OT_CONTAINER) {
         if (world)
             for (size_t i = 0; i < world->models.size(); ++i)
