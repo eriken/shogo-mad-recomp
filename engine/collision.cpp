@@ -335,15 +335,27 @@ Vec3 collideAndSlide(const std::vector<SweepTri> &tris, const Vec3 &radii, const
         // along the normal. Same as Fauerby's newDest - contact, but also right
         // when the normal was flattened and isn't along newBase - contact.)
         Vec3 rest = dest - newBase;
+        // Walkers on a floor they can stand on (a slope included): the fall
+        // in the move just stops, rather than sliding them downhill, unless
+        // they're walking downhill anyway. Slid, it pushed a mech standing on
+        // a ramp downhill, and walking slowly up one (ducked, at the lip of
+        // the Avernus airshafts ramp) it held it all but still.
+        if (wallNormalY > 0 && rest.y < 0) {
+            Vec3 world = normalized(div(slideNormal, radii));
+            if (world.y >= 0.7f && dot(Vec3{rest.x, 0, rest.z}, slideNormal) <= 0) rest.y = 0;
+        }
         Vec3 newVel = rest - slideNormal * dot(rest, slideNormal);
         // Two planes: slide along their crease instead of bouncing between them.
         if (depth == 0) {
             firstPlaneNormal = slideNormal;
-        } else if (depth == 1) {
-            // (Only two planes at an angle have one: the same plane met again
-            // gives a cross product of nothing but rounding, which normalized
-            // points anywhere. On the Avernus ramp toward the museum it ran
-            // along z, and every step downhill was thrown away.)
+        } else if (depth == 1 && dot(newVel, firstPlaneNormal) < 0) {
+            // (Only when the slide runs back into the first plane: otherwise
+            // the crease throws away a free move. At the foot of a ramp the
+            // crease of floor and ramp ran sideways, and the walk up stopped.
+            // And only two planes at an angle have one: the same plane met
+            // again gives a cross product of nothing but rounding, which
+            // normalized points anywhere. On the Avernus ramp toward the
+            // museum it ran along z, and every step downhill was thrown away.)
             Vec3 c = cross(firstPlaneNormal, slideNormal);
             if (length(c) > 0.1f) {
                 Vec3 crease = normalized(c);

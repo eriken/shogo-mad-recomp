@@ -302,8 +302,15 @@ void moveObject(Server &s, EngineObject *o, const DVector &target, bool teleport
     }
 
     // Stop the velocity going into what we hit.
+    // (A walker's floor stops its fall, and only that: clipped against a
+    // slope, the fall turned into speed downhill, and it slid.)
+    const bool walker = (o->flags & FLAG_STAIRSTEP) && !(o->flags & FLAG_NOSLIDING);
     for (const SweepHit &h : hits) {
         Vec3 v = v3(o->velocity);
+        if (walker && h.normal.y >= 0.7f) {
+            if (v.y < 0) o->velocity.y = 0;
+            continue;
+        }
         float into = dot(v, h.normal);
         if (into < 0) o->velocity = dv(v - h.normal * into);
     }
