@@ -72,17 +72,20 @@ file ClientShellDLL/CMoveMgr.cpp a19783aab5fa17b2
 + [[39, 0, 5], "INI", [39, 7, 11], "vCarryOffset", [39, 30, null]]
 + [[40, 0, 3], "fSpeedCap", [40, 14, 18], ".0f;\n"]
 + [[41, 0, 5], "peedCapAll", [41, 16, null]]
-@ 266 0 -
+@ 173 1 85518361c2bfcc74
++ [[171, 0, 4], "Native port: always run; the run key (shown as \"Walk\") walks", [171, 13, 16], "ile held.\n"]
++ [[173, 0, 5], "!", [173, 5, 45], ")\n"]
+@ 265 0 -
++ [[265, 0, null]]
 + ["\n"]
 + ["\t// Native port: moving, as", [1446, 8, 22], "characters work it out. Never set\n"]
-+ ["\t// here, so ", [1131, 24, 38], " (meant for when we stop) braked every step, and\n"]
++ ["\t// here, so ", [1131, 24, 38], [262, 41, 44], "eant for when we stop) braked every step, and\n"]
 + ["\t// ducked, with half the push, the walk crawled at a frame's worth of\n"]
 + ["\t//", [325, 29, 42], ": slower the higher the frame rate.\n"]
-+ ["\tif ((", [264, 2, 19], "& (", [208, 22, 37], [1142, 36, 47], "REVERSE |", [264, 21, 41], [1142, 36, 47], [236, 41, 55], " ||\n"]
++ [[262, 0, 25], "(", [262, 25, 33], "FORWARD", [1142, 36, 47], "REVERSE |", [262, 61, 76], "_LEFT", [1142, 36, 47], [236, 41, 55], " ||\n"]
 + [[264, 0, 4], [83, 3, 15], [264, 13, 18], ")\n"]
 + [[263, 0, null]]
 + [[264, 0, 30], "MOVING;\n"]
-+ [[265, 0, null]]
 @ 419 0 -
 + [[416, 0, 3], [291, 2, 12], "ownhill;\n"]
 + [[419, 0, 18], "Downhill", [419, 24, 36], "1", [419, 40, null]]
@@ -176,6 +179,7 @@ file ClientShellDLL/ClientUtilities.cpp b82b23e19b44fc93
 + [[82, 0, 27], "\n"]
 + [[83, 0, 29], "\n"]
 + [[92, 0, 33], "\n"]
++ [[91, 0, 28], "// always running now\n"]
 + ["\t\t", [97, 0, 8], "DTRUE;\n"]
 + [[95, 0, null]]
 + [[97, 0, 8], "DFALSE;\n"]
@@ -650,6 +654,9 @@ file ClientShellDLL/RiotClientShell.cpp 080db04762765708
 + [[4109, 0, 17], "(char*)", [4109, 17, null]]
 @ 4115 1 bffd35113bdf767b
 + [[4115, 0, 12], "(char*)", [4115, 12, null]]
+@ 4837 1 8462d34db0703c5f
++ [[4835, 0, 4], "Native port: always run; the run key (shown as \"Walk\") walks", [4835, 13, 16], "ile held.\n"]
++ [[4837, 0, 5], "!", [4837, 5, 43], ")\n"]
 @ 5881 1 80588b80a6155e09
 + [[5881, 0, 18], "(char*)", [5881, 18, null]]
 @ 5949 1 94002d7c4302319d
@@ -748,6 +755,10 @@ file ClientShellDLL/TextHelper.cpp 4a9cbbfc0096c6bf
 @ 77 1 5c8641219875b38d
 + [[75, 0, 5], "i;\n"]
 + [[77, 0, 6], [77, 10, null]]
+@ 112 0 -
++ ["\n"]
++ ["\t// Native port: always runn", [109, 42, 45], ", so the run key's c", [109, 77, 80], "rol is \"Walk\".\n"]
++ ["\tif (strID ==", ["ClientRes/ClientRes.rc", 732, 3, 19], ") return ", [109, 22, 47], [109, 58, 69], [109, 82, 89], "\"Walk\",", [109, 103, 121], ";\n"]
 @ 183 1 7b891b1c0af61267
 + [[183, 0, 11], "uintptr_t", [183, 17, null]]
 @ 221 1 675b8c663ba6cac1
@@ -844,6 +855,9 @@ file ObjectDLL/PlayerObj.cpp da4d1fd00aaab636
 + [[337, 0, 53], "SHOGO_TOKEN_TO_PTR( ", [337, 53, 95], " );\n"]
 @ 712 1 422fdcda7f99cb2d
 + [[712, 0, 43], "SHOGO_PTR_TO_TOKEN( ", [712, 53, 83], " );\n"]
+@ 763 1 e87d0aba00edbe6c
++ [[761, 0, 4], "Native port: always run; the run key (shown as \"Walk\") walks", [761, 13, 16], "ile held.\n"]
++ [[763, 0, 5], "!", [763, 5, 54], ")\n"]
 @ 1284 1 f5535e3b378920bf
 + [[1284, 0, 27], "uintptr_t", [1284, 33, null]]
 @ 1960 1 7790a05c28d96720
