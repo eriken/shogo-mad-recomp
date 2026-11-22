@@ -3,6 +3,10 @@
 //
 // Usage: shogo-modelview MODEL.ABC [--skin SKIN.DTX] [--anim NAME] [--time MS]
 //                        [--yaw DEGREES] [--list] --out OUT.PNG
+//        shogo-modelview MODEL.ABC --scan
+//   --scan: poses every animation every 10 ms, and every animation blended
+//   into each one, and reports poses with a vertex far outside the model
+//   (a stretched triangle).
 // Run from the game folder (reads SHOGO.REZ and SHOGOP.REZ if present).
 #include "engine/collision.h"
 #include "engine/image_write.h"
@@ -24,7 +28,7 @@ int main(int argc, char **argv)
 {
     std::string model, skin, anim, out;
     float timeMs = 0, yawDeg = 0;
-    bool list = false;
+    bool list = false, scan = false;
     for (int i = 1; i < argc; ++i) {
         auto next = [&]() { return i + 1 < argc ? argv[++i] : ""; };
         if (!strcmp(argv[i], "--skin")) skin = next();
@@ -33,9 +37,10 @@ int main(int argc, char **argv)
         else if (!strcmp(argv[i], "--yaw")) yawDeg = (float)atof(next());
         else if (!strcmp(argv[i], "--out")) out = next();
         else if (!strcmp(argv[i], "--list")) list = true;
+        else if (!strcmp(argv[i], "--scan")) scan = true;
         else model = argv[i];
     }
-    if (model.empty() || (out.empty() && !list)) {
+    if (model.empty() || (out.empty() && !list && !scan)) {
         fprintf(stderr, "usage: %s MODEL.ABC [--skin SKIN.DTX] [--anim NAME] [--time MS] [--yaw DEG] [--list] --out OUT.PNG\n",
                 argv[0]);
         return 2;
@@ -63,7 +68,42 @@ int main(int argc, char **argv)
         for (const ModelAnim &a : m->anims)
             printf("  %-16s %5u ms, %zu keys, dims %.0f %.0f %.0f\n", a.name.c_str(), a.length, a.keys.size(), a.dims.x,
                    a.dims.y, a.dims.z);
-        if (out.empty()) return 0;
+        if (out.empty() && !scan) return 0;
+    }
+    if (scan) {
+        // How far a vertex reaches from the model's origin, posed.
+        auto reach = [&](int ai, float t, const PoseBlend *from) {
+            std::vector<Vec3> pos;
+            poseModel(*m, ai, t, nullptr, &pos, nullptr, from);
+            float far = 0;
+            for (const Vec3 &p : pos) {
+                if (!std::isfinite(p.x) || !std::isfinite(p.y) || !std::isfinite(p.z)) return 1e30f;
+                far = std::max(far, length(p));
+            }
+            return far;
+        };
+        float base = reach(0, 0, nullptr), limit = std::max(base * 3.0f, 100.0f);
+        printf("rest pose reaches %.0f; flagging over %.0f\n", base, limit);
+        int bad = 0;
+        for (size_t ai = 0; ai < m->anims.size(); ++ai) {
+            const ModelAnim &a = m->anims[ai];
+            for (float t = 0; t <= (float)a.length; t += 10) {
+                float r = reach((int)ai, t, nullptr);
+                if (r > limit && bad++ < 50) printf("  %s at %.0f ms reaches %.0f\n", a.name.c_str(), t, r);
+                for (size_t fi = 0; fi < m->anims.size(); ++fi) {
+                    if (fi == ai) continue;
+                    for (float ft : {0.0f, (float)m->anims[fi].length * 0.5f, (float)m->anims[fi].length}) {
+                        PoseBlend from{(int)fi, ft, 0.5f};
+                        float rb = reach((int)ai, t, &from);
+                        if (rb > limit && bad++ < 50)
+                            printf("  %s at %.0f ms, half blended from %s at %.0f ms, reaches %.0f\n", a.name.c_str(), t,
+                                   m->anims[fi].name.c_str(), ft, rb);
+                    }
+                }
+            }
+        }
+        printf("%d bad poses\n", bad);
+        return bad ? 1 : 0;
     }
     int ai = anim.empty() ? 0 : m->find(anim.c_str());
     if (ai < 0) {
