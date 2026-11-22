@@ -44,7 +44,7 @@ int main(int argc, char **argv)
         printf("%-40s %4zu objects %3zu models %6zu polys (main %5zu)  %4zu texture refs, %zu unreadable\n",
                name.c_str(), w->objects.size(), w->models.size(), polys, w->models[0].polys.size(), tex, badTex);
         if (argc > 1 && getenv("SHOGO_WORLDINFO_OBJECTS")) {
-            // Every object: class, then its string, vector and number properties.
+            // Every object: class, then its string, vector, number, bool and flag properties.
             for (const auto &o : w->objects) {
                 printf("   object %s", o.className.c_str());
                 for (const auto &p : o.props) {
@@ -54,6 +54,10 @@ int main(int argc, char **argv)
                         printf(" %s=(%g %g %g)", p.name.c_str(), p.vec[0], p.vec[1], p.vec[2]);
                     else if (p.type == WorldProp::Real || p.type == WorldProp::LongInt)
                         printf(" %s=%g", p.name.c_str(), p.vec[0]);
+                    else if (p.type == WorldProp::Bool)
+                        printf(" %s=%s", p.name.c_str(), p.bits ? "TRUE" : "FALSE");
+                    else if (p.type == WorldProp::Flags)
+                        printf(" %s=0x%x", p.name.c_str(), p.bits);
                 }
                 printf("\n");
             }
