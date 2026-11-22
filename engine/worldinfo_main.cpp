@@ -62,6 +62,32 @@ int main(int argc, char **argv)
                 printf("\n");
             }
         }
+        // SHOGO_WORLDINFO_POLYS="x0,y0,z0,x1,y1,z1": every polygon (of any model)
+        // with a vertex in that box, with its plane normal and vertices.
+        if (const char *box = getenv("SHOGO_WORLDINFO_POLYS")) {
+            Vec3 a, b;
+            if (sscanf(box, "%f,%f,%f,%f,%f,%f", &a.x, &a.y, &a.z, &b.x, &b.y, &b.z) == 6) {
+                for (const auto &m : w->models)
+                    for (size_t pi = 0; pi < m.polys.size(); ++pi) {
+                        const WorldPoly &poly = m.polys[pi];
+                        bool in = false;
+                        for (const auto &v : poly.verts) {
+                            if (v.point >= m.points.size()) continue;
+                            const Vec3 &p = m.points[v.point];
+                            in = in || (p.x >= a.x && p.x <= b.x && p.y >= a.y && p.y <= b.y && p.z >= a.z && p.z <= b.z);
+                        }
+                        if (!in) continue;
+                        Vec3 n{};
+                        if (poly.surface < m.surfaces.size() && m.surfaces[poly.surface].plane < m.planes.size())
+                            n = m.planes[m.surfaces[poly.surface].plane].normal;
+                        printf("   poly %s#%zu n (%.3f %.3f %.3f):", m.name.empty() ? "main" : m.name.c_str(), pi, n.x, n.y, n.z);
+                        for (const auto &v : poly.verts)
+                            if (v.point < m.points.size())
+                                printf(" (%g %g %g)", m.points[v.point].x, m.points[v.point].y, m.points[v.point].z);
+                        printf("\n");
+                    }
+            }
+        }
         if (argc > 1) {
             std::map<uint32_t, int> flags;
             for (const auto &s : w->models[0].surfaces) flags[s.flags]++;
