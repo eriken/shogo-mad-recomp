@@ -144,7 +144,10 @@ bool localPose(const ModelInfo &m, const ModelAnim *a, size_t k0, size_t k1, flo
         if (a->tracks[i].empty()) continue;
         const NodeKey &p = a->tracks[i][k0], &q = a->tracks[i][k1];
         local[i].pos = p.pos + (q.pos - p.pos) * f;
-        local[i].rot = f > 0 ? quatSlerp(p.rot, q.rot, f) : p.rot;
+        // Some keys' rotations aren't unit length (the Civilian1 corpse pose
+        // DEAD1); slerp normalizes, so normalize on a key too, or the
+        // vertices are scaled out to thousands of units.
+        local[i].rot = f > 0 ? quatSlerp(p.rot, q.rot, f) : quatNormalize(p.rot);
     }
     return true;
 }
