@@ -118,6 +118,10 @@ void addModelTris(Server &s, EngineObject *o, const Placement &p, const Vec3 &mn
     }
 }
 
+// How far into the top of a walker a box-physics world model may reach and
+// still be passed under (see gather).
+constexpr float kOverhangSqueeze = 8.0f;
+
 // Everything `mover` could hit within [mn, mx].
 void gather(Server &s, EngineObject *mover, const Vec3 &mn, const Vec3 &mx, std::vector<SweepTri> &out)
 {
@@ -134,7 +138,24 @@ void gather(Server &s, EngineObject *mover, const Vec3 &mn, const Vec3 &mx, std:
             if (!world || o->bsp <= 0 || size_t(o->bsp) >= s.collisionModels.size()) continue;
             if (!(o->flags & FLAG_SOLID) || (o->flags & FLAG_SKYOBJECT) || o->type == OT_CONTAINER) continue;
             if (mover->clientOnly && (o->flags & FLAG_CLIENTNONSOLID)) continue;
-            addModelTris(s, o, placementOf(o), mn, mx, out);
+            if (!(o->flags & FLAG_BOXPHYSICS) || !(mover->flags & FLAG_STAIRSTEP)) {
+                addModelTris(s, o, placementOf(o), mn, mx, out);
+                continue;
+            }
+            // A box-physics world model (doors, hanging signs) that only dips into
+            // the top of a walker is squeezed under rather than walked into. The
+            // original lets that through, presumably by pushing boxes apart along
+            // their shallowest overlap: in Avernus, Baku's mech (100 tall) runs
+            // under a solid tunnel sign 96 above the road, in a cutscene, to reach
+            // the cave-in trigger. Swept as an ellipsoid, his head caught the
+            // sign's edge and he ran in place.
+            std::vector<SweepTri> tris;
+            addModelTris(s, o, placementOf(o), mn, mx, tris);
+            float bottom = 1e30f;
+            for (const SweepTri &t : tris) bottom = std::min({bottom, t.tri.a.y, t.tri.b.y, t.tri.c.y});
+            const float top = mover->pos.y + radiiOf(mover).y;
+            if (bottom > mover->pos.y && bottom >= top - kOverhangSqueeze) continue;
+            out.insert(out.end(), tris.begin(), tris.end());
             continue;
         }
         if (!(mover->flags & FLAG_SOLID) || !blocks(mover, o)) continue;
