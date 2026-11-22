@@ -782,11 +782,28 @@ file ObjectDLL/BaseAI.cpp 5041931158764b0f
 + ["\t\tconst ", [5330, 2, null]]
 + ["\t\tconst ", [5331, 2, null]]
 file ObjectDLL/BaseCharacter.cpp 8aa377451bae994b
+@ 58 0 -
++ ["\n"]
++ [[60, 0, 3], "The hand-weapon table scales a larg", [903, 47, 61], "gun by 5, ", [60, 14, 17], "ching the 5x\n"]
++ [[60, 0, 3], "body that larg", [2212, 18, 31], "normally get. Baku's mecha is large but keeps its\n"]
++ [[60, 0, 3], "body at 1x, so its gun would come out five ti", [60, 23, 26], " too big: size the gun by\n"]
++ [[60, 0, 3], "the body's own scale instead.\n"]
++ ["st", [60, 15, 18], "c DVector ", [1126, 21, 36], "ForBody", [1225, 41, 54], [3469, 15, 27], [583, 5, 15], "eSize, const DFLOAT* pDimsScale)\n"]
++ ["{\n"]
++ ["\tif (eSize != ", [55, 10, 13], "LAR", [2607, 33, 43], [1126, 17, 37], [3469, 16, 27], "eSize);\n"]
++ [[3298, 0, 37], [3469, 16, 27], [55, 10, 13], "NORMAL);\n"]
++ [[752, 0, 31], "p", [196, 4, 14], [55, 10, 13], "LARGE]);\n"]
++ [["Shared/ModelFuncs.h", 80, 0, null]]
++ ["}\n"]
+@ 1126 1 54297ee9f439a7d2
++ [[1126, 0, 18], [1126, 21, 36], "ForBody", [1126, 36, 67], [752, 29, 43], [1126, 67, null]]
 @ 1307 1 c282472d6c976496
 + ["\t", [1307, 6, 14], ";\n"]
 + [[1307, 0, 6], [1307, 13, null]]
 @ 3088 1 7abaf9f66587f9c8
 + ["\t\tconst ", [3088, 2, null]]
+@ 3298 1 e33c455029919d72
++ [[3298, 0, 18], [3298, 21, 36], "ForBody", [3298, 36, 67], [752, 29, 43], [3298, 67, null]]
 file ObjectDLL/DebrisFuncs.cpp 92d4a3b80a0a813f
 @ 58 1 cc692b618c4d5444
 + [[58, 0, 14], [58, 16, null]]
