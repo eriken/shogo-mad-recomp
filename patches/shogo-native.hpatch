@@ -72,6 +72,17 @@ file ClientShellDLL/CMoveMgr.cpp a19783aab5fa17b2
 + [[39, 0, 5], "INI", [39, 7, 11], "vCarryOffset", [39, 30, null]]
 + [[40, 0, 3], "fSpeedCap", [40, 14, 18], ".0f;\n"]
 + [[41, 0, 5], "peedCapAll", [41, 16, null]]
+@ 266 0 -
++ ["\n"]
++ ["\t// Native port: moving, as", [1446, 8, 22], "characters work it out. Never set\n"]
++ ["\t// here, so ", [1131, 24, 38], " (meant for when we stop) braked every step, and\n"]
++ ["\t// ducked, with half the push, the walk crawled at a frame's worth of\n"]
++ ["\t//", [325, 29, 42], ": slower the higher the frame rate.\n"]
++ ["\tif ((", [264, 2, 19], "& (", [208, 22, 37], [1142, 36, 47], "REVERSE |", [264, 21, 41], [1142, 36, 47], [236, 41, 55], " ||\n"]
++ [[264, 0, 4], [83, 3, 15], [264, 13, 18], ")\n"]
++ [[263, 0, null]]
++ [[264, 0, 30], "MOVING;\n"]
++ [[265, 0, null]]
 @ 419 0 -
 + [[416, 0, 3], [291, 2, 12], "ownhill;\n"]
 + [[419, 0, 18], "Downhill", [419, 24, 36], "1", [419, 40, null]]
