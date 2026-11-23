@@ -620,7 +620,15 @@ file ClientShellDLL/LoadSavedLevelMenu.cpp ae69487190a5c433
 file ClientShellDLL/MainMenu.cpp 6b1ba442c06d3003
 @ 19 1 baa45d2b6e5deda1
 + [[19, 0, 38], "SHOGO_TOKEN_TO_PTR(", [19, 38, 47], ");\n"]
+@ 86 1 2502c3f9cba24fc2
++ ["\t\t// Native port: m", [88, 69, 79], " isn't ported yet. Say so, before offering\n"]
++ ["\t\t// to end the curr", [84, 8, 11], " g", [84, 22, 25], " for it.\n"]
++ ["\t\tif (", [84, 4, 16], ")\n"]
 @ 88 1 67c5cd2663c20bbe
++ [[88, 0, 19], [88, 24, 36], "\"", [88, 68, 79], " isn't ready yet.\"", [88, 93, null]]
++ [[89, 0, null]]
++ ["\t\telse ", [86, 2, null]]
++ [[87, 0, null]]
 + [[88, 0, 81], "SHOGO_PTR_TO_TOKEN(", [88, 89, 93], ")", [88, 93, null]]
 @ 350 1 22633cbf021fc5ab
 + ["\t", [350, 6, 11], ";\n"]
