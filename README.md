@@ -17,8 +17,8 @@ You bring your own copy of the game (from GOG); this project gives it a new engi
   combat as the action heats up, plus all the sound effects in 3D.
 - **The intro movies** — or skip them, your call.
 - **Saving that just works.** Quick save and quick load, plus the full save/load menus.
-- **Comfortable controls.** Mouse look, always-run, a dedicated reload key, the mouse wheel
-  as a bindable button, and every key rebindable.
+- **Comfortable controls.** WASD and mouse look, always-run, a dedicated reload key, the
+  mouse wheel as a bindable button, and every key rebindable.
 
 ## What you need
 
@@ -62,17 +62,17 @@ Changes apply immediately.
 
 ## Controls
 
-The defaults are the original game's, with a couple of comforts added. Every key can be
-changed in the game's **Options** menu — WASD fans, that's where to go.
+Modern WASD-and-mouse controls out of the box; the original game's keys still work too.
+Every key can be changed in the game's **Options** menu.
 
 | Action | Key |
 |---|---|
-| Move / turn | Arrow keys |
+| Move / strafe | WASD |
 | Look | Mouse |
 | Fire | Left mouse button / Ctrl |
 | Jump | Space |
 | Crouch | C |
-| Strafe left / right | , / . |
+| Tractor beam | F |
 | Pick a weapon | 1–0, or [ and ] for previous / next |
 | Reload | R |
 | Walk (you run by default) | Hold Shift |

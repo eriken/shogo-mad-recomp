@@ -26,6 +26,19 @@ std::string lower(std::string s)
     return s;
 }
 
+// Port defaults on top of GOG's key bindings, added to a newly copied
+// autoexec.cfg only (an existing one is the player's and stays as it is):
+// W/S forward and back, A/D strafe, the mouse turning. S was the tractor
+// beam's, which moves to F (free in GOG's bindings). The arrow keys and , .
+// stay bound too. A later rangebind for a key replaces the earlier one.
+const char kPortBindings[] =
+    "\n// Shogo native: WASD movement\n"
+    "rangebind \"##keyboard\" \"##17\" 0.000000 0.000000 \"Forward\"\n"
+    "rangebind \"##keyboard\" \"##31\" 0.000000 0.000000 \"Backward\"\n"
+    "rangebind \"##keyboard\" \"##30\" 0.000000 0.000000 \"StrafeLeft\"\n"
+    "rangebind \"##keyboard\" \"##32\" 0.000000 0.000000 \"StrafeRight\"\n"
+    "rangebind \"##keyboard\" \"##33\" 0.000000 0.000000 \"TractorBeam\"\n";
+
 }  // namespace
 
 std::string defaultGameDataDir()
@@ -74,6 +87,7 @@ bool importFromGogInstaller(const std::string &installer, const std::string &dir
     };
     std::vector<Wanted> wanted;
     uint64_t total = 0, done = 0;
+    std::string newAutoexec;  // GOG's autoexec.cfg, when the player had none
     for (const GogFile &f : files) {
         std::string path = f.path, l = lower(f.path);
         // GOG's Galaxy files are left out, except its icon (goggame-*.ico): the Dock icon.
@@ -85,6 +99,7 @@ bool importFromGogInstaller(const std::string &installer, const std::string &dir
         if (l.rfind("__support/app/", 0) == 0) {
             path = path.substr(strlen("__support/app/"));
             if (fs::exists(fs::path(dir) / path, ec)) continue;
+            if (lower(path) == "autoexec.cfg") newAutoexec = path;
         } else if (l.rfind("__support/", 0) == 0) {
             continue;
         }
@@ -106,6 +121,13 @@ bool importFromGogInstaller(const std::string &installer, const std::string &dir
     if (!isFile(fs::path(dir) / "SHOGO.REZ") || !isFile(fs::path(dir) / "SOUND.REZ")) {
         *err = "the installer doesn't contain Shogo's game data (SHOGO.REZ)";
         return false;
+    }
+    if (!newAutoexec.empty()) {
+        std::ofstream cfg(fs::path(dir) / newAutoexec, std::ios::app | std::ios::binary);
+        if (!(cfg << kPortBindings)) {
+            *err = "can't write to " + (fs::path(dir) / newAutoexec).string();
+            return false;
+        }
     }
     std::ofstream(fs::path(dir) / kMarker) << "imported from " << fs::path(installer).filename().string() << "\n";
     if (progress) progress(1, "done");
