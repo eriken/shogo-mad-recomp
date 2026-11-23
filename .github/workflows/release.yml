@@ -75,4 +75,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" "${{ steps.dmg.outputs.path }}" --title "Shogo $GITHUB_REF_NAME" \
-            --notes "Needs your own copy of Shogo: Mobile Armor Division from GOG: open the app and import GOG's installer. NOT MADE BY OR SUPPORTED BY Monolith Productions. The app isn't notarized yet: the first time, right-click it and choose Open."
+            --notes "Needs your own copy of Shogo: Mobile Armor Division from GOG: open the app and import GOG's installer. The app isn't notarized yet: the first time, right-click it and choose Open.
+
+          Made by Erik Wessel (shogo-recomp.unlocking364@passmail.net). THIS PORT IS NOT MADE BY OR SUPPORTED BY Monolith Productions, or any of its affiliates and subsidiaries."

@@ -42,8 +42,10 @@ const float kPanelX = kArtW + 24, kPanelW = kW - kArtW - 48;
 const size_t kPanelChars = size_t(kPanelW / 8);  // at the 8x8 font's scale 1
 
 // Monolith's source licence (section 8c) asks variations to name their
-// creators and to say on the opening screen that Monolith didn't make them.
+// creators and their email addresses, and to say on the opening screen that
+// Monolith didn't make them. The address is the project's own alias.
 const char kCreators[] = "Shogo Recomp by Erik Wessel";
+const char kContact[] = "shogo-recomp.unlocking364@passmail.net";
 const char kNotice[] = "THIS PORT IS NOT MADE BY OR SUPPORTED BY Monolith Productions, or any of its "
                        "affiliates and subsidiaries.";
 
@@ -571,9 +573,10 @@ int runLauncher(const std::string &exe)
                           "Nothing is installed or run.",
                           kDim);
         }
-        paragraph(renderer, kPanelX, kH - 112, kNotice, kText);
+        paragraph(renderer, kPanelX, kH - 126, kNotice, kText);
         std::string credit = std::string(kCreators) + "  v" + SHOGO_RECOMP_VERSION;
-        text(renderer, kPanelX, kH - 56, credit, 1, kDim);
+        text(renderer, kPanelX, kH - 70, credit, 1, kDim);
+        text(renderer, kPanelX, kH - 56, kContact, 1, kDim);
         text(renderer, kPanelX, kH - 30, "Arrows select  Enter choose  Esc quit", 1, kDim);
         if (!shotFile.empty() && (SDL_GetTicks() - started) / 1000.0 >= shotAt) {
             if (SDL_Surface *shot = SDL_RenderReadPixels(renderer, nullptr)) {

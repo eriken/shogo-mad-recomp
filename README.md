@@ -107,8 +107,14 @@ cmake --build build -j
 The finished app is `build/Shogo.app`. Developer tools, tests and how the engine works are
 covered in the [developer notes](docs/development.md).
 
-## Legal stuff
+## Credits and legal stuff
 
-This is a fan project and isn't made or endorsed by Monolith or anyone who owns Shogo.
-It contains only its own code: no game files, art, music or Monolith source. The game's
-data is read from your own copy at runtime and never shipped with the app.
+Made by Erik Wessel — shogo-recomp.unlocking364@passmail.net
+
+**THIS PORT IS NOT MADE BY OR SUPPORTED BY Monolith Productions, or any of its affiliates
+and subsidiaries.**
+
+This is a free fan project. The repository contains only its own code: no game files, art,
+music or Monolith source. The game's data is read from your own copy at runtime and never
+shipped with the app. The app includes a build of the game code from Monolith's released
+Shogo source, under that source's licence; it's free and only works with the full game.
