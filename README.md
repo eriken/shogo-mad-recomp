@@ -29,6 +29,11 @@ You bring your own copy of the game (from GOG); this project gives it a new engi
 
 The Steam version isn't supported yet.
 
+**Mac only, on purpose.** This project is about making Shogo run as well as possible on
+Apple Silicon Macs, so it uses Metal and other macOS features directly. Windows and Linux
+versions aren't planned, and pull requests adding them won't be merged, but you're welcome
+to fork the project and take it there yourself.
+
 ## Getting started
 
 1. **Open `Shogo.app`.** The launcher appears.
