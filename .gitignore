@@ -1,5 +1,6 @@
 # Build output
 /build/
+/build-*/
 
 # Monolith's Shogo source (shogsrc22.zip): its EULA forbids redistribution.
 /third_party/shogsrc22/

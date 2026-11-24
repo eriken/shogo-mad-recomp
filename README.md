@@ -38,10 +38,11 @@ to fork the project and take it there yourself.
 
 ## Getting started
 
-1. **Open `Shogo.app`.** The launcher appears. The app isn't notarized by Apple yet, so the
-   first time you open a downloaded copy, macOS says it couldn't verify "Shogo". Click
-   **Done**, then open **System Settings > Privacy & Security**, click **Open Anyway** next
-   to the Shogo message, and confirm. After that it opens normally.
+1. **Open `Shogo.app`.** The launcher appears. Releases after 0.2.0 are signed and
+   notarized by Apple, so they open straight away. 0.2.0 and earlier aren't: the first
+   time, macOS says it couldn't verify "Shogo". Click **Done**, then open
+   **System Settings > Privacy & Security**, click **Open Anyway** next to the Shogo
+   message, and confirm.
 2. **Import your game.**
    - **GOG:** click **Import from GOG…** and pick the GOG installer (or just drag it onto
      the window). It takes a few seconds; the launcher reads the game straight out of the

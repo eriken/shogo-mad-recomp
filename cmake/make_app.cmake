@@ -63,8 +63,30 @@ file(WRITE "${GAME}/Contents/Info.plist" "<?xml version=\"1.0\" encoding=\"UTF-8
 </dict></plist>
 ")
 
-# Ad-hoc signature (Apple silicon needs one; install_name_tool broke the old).
-execute_process(COMMAND codesign --force --deep -s - "${APP}" RESULT_VARIABLE sign_result OUTPUT_QUIET ERROR_QUIET)
-if(NOT sign_result EQUAL 0)
-    message(WARNING "codesign failed: the app may not start")
+# Signing. Without SIGN: an ad-hoc signature (Apple silicon needs one;
+# install_name_tool broke the linker's). With SIGN (a Developer ID identity):
+# each piece is signed from the inside out, with the hardened runtime and a
+# secure timestamp, as notarization asks. All the code is ours and signed by the
+# same team, so the game's dlopen of its modules passes library validation and
+# no entitlements are needed.
+if(NOT SIGN)
+    execute_process(COMMAND codesign --force --deep -s - "${APP}" RESULT_VARIABLE sign_result OUTPUT_QUIET ERROR_QUIET)
+    if(NOT sign_result EQUAL 0)
+        message(WARNING "codesign failed: the app may not start")
+    endif()
+    return()
 endif()
+get_filename_component(object_name "${OBJECT}" NAME)
+get_filename_component(cshell_name "${CSHELL}" NAME)
+foreach(code
+        "${APP}/Contents/Frameworks/libSDL3.0.dylib"
+        "${APP}/Contents/MacOS/${object_name}"
+        "${APP}/Contents/MacOS/${cshell_name}"
+        "${GAME}"
+        "${APP}")
+    execute_process(COMMAND codesign --force --options runtime --timestamp -s "${SIGN}" "${code}"
+                    RESULT_VARIABLE sign_result ERROR_VARIABLE sign_err)
+    if(NOT sign_result EQUAL 0)
+        message(FATAL_ERROR "signing ${code} with \"${SIGN}\" failed: ${sign_err}")
+    endif()
+endforeach()

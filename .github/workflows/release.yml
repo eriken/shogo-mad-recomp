@@ -47,9 +47,39 @@ jobs:
       - name: Install SDL3
         run: brew install sdl3
 
+      # The Developer ID certificate (secrets DEVELOPER_ID_P12, base64 of the
+      # .p12, and DEVELOPER_ID_P12_PASSWORD) goes into a keychain of its own
+      # that lives only as long as this job. A tag needs it; a run by hand
+      # without it builds an ad-hoc signed app, as before.
+      - name: Import the signing certificate
+        id: sign
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+        run: |
+          if [ -z "$P12" ]; then
+            case "$GITHUB_REF" in refs/tags/v*) echo "::error::a release needs the DEVELOPER_ID_P12 secrets"; exit 1 ;; esac
+            echo "No signing certificate: ad-hoc signature, not notarized."
+            exit 0
+          fi
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KC_PASSWORD=$(openssl rand -hex 24)
+          security create-keychain -p "$KC_PASSWORD" "$KC"
+          security set-keychain-settings -lut 3600 "$KC"
+          security unlock-keychain -p "$KC_PASSWORD" "$KC"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PASSWORD" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          IDENTITY=$(security find-identity -v -p codesigning "$KC" | awk '/Developer ID Application/ { print $2; exit }')
+          [ -n "$IDENTITY" ] || { echo "::error::no Developer ID Application identity in the .p12"; exit 1; }
+          echo "identity=$IDENTITY" >> "$GITHUB_OUTPUT"
+
       - name: Build
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=15.0 \
+            -DSHOGO_SIGN_IDENTITY="${{ steps.sign.outputs.identity }}"
           cmake --build build -j "$(sysctl -n hw.ncpu)"
 
       - name: Test (without game data)
@@ -57,11 +87,27 @@ jobs:
 
       - name: Make the disk image
         id: dmg
+        env:
+          SHOGO_SIGN_IDENTITY: ${{ steps.sign.outputs.identity }}
         run: |
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' build/Shogo.app/Contents/Info.plist)
           case "$GITHUB_REF" in refs/tags/v*) NAME="Shogo-${GITHUB_REF_NAME#v}" ;; *) NAME="Shogo-$VERSION-$(git rev-parse --short HEAD)" ;; esac
           tools/make_dmg.sh build "build/$NAME.dmg"
           echo "path=build/$NAME.dmg" >> "$GITHUB_OUTPUT"
+
+      # Notarization with an App Store Connect API key: secrets NOTARY_KEY
+      # (the AuthKey_*.p8 file's text), NOTARY_KEY_ID and NOTARY_ISSUER.
+      - name: Notarize
+        if: steps.sign.outputs.identity != ''
+        env:
+          KEY: ${{ secrets.NOTARY_KEY }}
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+        run: |
+          export NOTARY_KEY="$RUNNER_TEMP/notary.p8"
+          printf '%s\n' "$KEY" > "$NOTARY_KEY"
+          tools/notarize.sh "${{ steps.dmg.outputs.path }}"
+          rm -f "$NOTARY_KEY"
 
       - uses: actions/upload-artifact@v7
         with:
@@ -77,6 +123,8 @@ jobs:
           gh release create "$GITHUB_REF_NAME" "${{ steps.dmg.outputs.path }}" --title "Shogo $GITHUB_REF_NAME" \
             --notes "Needs your own copy of Shogo: Mobile Armor Division from GOG or Steam: open the app and import GOG's installer, or the Steam download (the launcher shows how to get it).
 
-          The app isn't notarized yet, so the first time macOS says it couldn't verify \"Shogo\". Click Done, then open System Settings > Privacy & Security, click Open Anyway next to the Shogo message, and confirm. It opens normally after that.
-
           Made by Erik Wessel (shogo-recomp.unlocking364@passmail.net). THIS PORT IS NOT MADE BY OR SUPPORTED BY Monolith Productions, or any of its affiliates and subsidiaries."
+
+      - name: Remove the signing keychain
+        if: always() && steps.sign.outputs.identity != ''
+        run: security delete-keychain "$RUNNER_TEMP/signing.keychain-db"

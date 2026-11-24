@@ -159,12 +159,18 @@ target_link_libraries(shogo PRIVATE shogo_engine shogo_compat SDL3::SDL3)
 target_compile_definitions(shogo PRIVATE SHOGO_RECOMP_VERSION="${PROJECT_VERSION}")
 add_dependencies(shogo shogo_object shogo_cshell)
 
+# Signing: empty (the default) gives an ad-hoc signature, enough to run here;
+# a "Developer ID Application" identity (name or SHA-1, from
+# `security find-identity -v -p codesigning`) signs for release, with the
+# hardened runtime that notarization needs (see tools/notarize.sh).
+set(SHOGO_SIGN_IDENTITY "" CACHE STRING "Code signing identity for Shogo.app (empty: ad-hoc)")
+
 # Shogo.app: the launcher and game, with the game modules and SDL3 inside.
 add_custom_target(shogo-app ALL
     COMMAND "${CMAKE_COMMAND}" -DAPP=${CMAKE_BINARY_DIR}/Shogo.app -DEXE=$<TARGET_FILE:shogo>
             -DOBJECT=$<TARGET_FILE:shogo_object> -DCSHELL=$<TARGET_FILE:shogo_cshell>
             -DSDL=$<TARGET_FILE:SDL3::SDL3> -DVERSION=${PROJECT_VERSION} -DMINOS=${CMAKE_OSX_DEPLOYMENT_TARGET}
-            -P "${CMAKE_SOURCE_DIR}/cmake/make_app.cmake"
+            "-DSIGN=${SHOGO_SIGN_IDENTITY}" -P "${CMAKE_SOURCE_DIR}/cmake/make_app.cmake"
     DEPENDS shogo shogo_object shogo_cshell "${CMAKE_SOURCE_DIR}/cmake/make_app.cmake"
     COMMENT "Assembling Shogo.app"
     VERBATIM)

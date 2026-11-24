@@ -206,6 +206,36 @@ Layers, from least to most invasive:
 | `tools/fix_forscope.py` | Fix VC6 for-loop variable scoping from Clang error output |
 | `tools/gen_engine_stubs.py` | Generate the stub engine from Clang's AST of the API headers |
 | `tools/render_check.sh` | Diff Metal against the software renderer on every level |
+| `tools/make_dmg.sh` | Pack `Shogo.app` into a release disk image (signed when `SHOGO_SIGN_IDENTITY` is set) |
+| `tools/notarize.sh` | Notarize a signed disk image with Apple and staple the ticket |
+
+## Releasing
+
+Bump `project(... VERSION ...)` in `CMakeLists.txt`, commit, and push a `v<version>`
+tag: the Release workflow builds the app, signs it with the Developer ID certificate,
+notarizes the disk image with Apple, staples the ticket and publishes a GitHub Release.
+It needs these repository secrets:
+
+| Secret | What |
+|---|---|
+| `DEVELOPER_ID_P12` | The "Developer ID Application" certificate and its private key, exported from Keychain Access as a .p12, base64-encoded |
+| `DEVELOPER_ID_P12_PASSWORD` | That .p12's password |
+| `NOTARY_KEY` | An App Store Connect API key (the `AuthKey_*.p8` file's text) |
+| `NOTARY_KEY_ID`, `NOTARY_ISSUER` | That key's ID, and the issuer ID shown above the keys |
+
+To make a notarized disk image here instead (with the certificate in your keychain and
+credentials saved once with `xcrun notarytool store-credentials shogo-notary`), in a
+build folder of its own so everyday builds stay ad-hoc:
+
+```sh
+cmake -B build-signed -DCMAKE_BUILD_TYPE=Release -DSHOGO_SIGN_IDENTITY="Developer ID Application"
+cmake --build build-signed
+SHOGO_SIGN_IDENTITY="Developer ID Application" tools/make_dmg.sh build-signed
+NOTARY_PROFILE=shogo-notary tools/notarize.sh build-signed/Shogo-<version>.dmg
+```
+
+Without `SHOGO_SIGN_IDENTITY` the app gets an ad-hoc signature, which is all a build
+for this Mac needs.
 
 ## Engine layout
 
@@ -239,7 +269,7 @@ Layers, from least to most invasive:
 | `engine/game_import.*` | Imports the game from GOG's installer or a Steam game folder into Application Support; checks a folder holds a finished import |
 | `engine/launcher.*` | The launcher window (import, Play, the licence notice; splash and Dock icon from the imported data), and the game's Dock icon |
 | `engine/image_read*` | Decodes PNG/ICO through ImageIO (the Dock icon) |
-| `cmake/make_app.cmake` | Assembles `Shogo.app` (game modules, SDL3, Info.plist, the game's own app in `Contents/Helpers`, ad-hoc signature) |
+| `cmake/make_app.cmake` | Assembles `Shogo.app` (game modules, SDL3, Info.plist, the game's own app in `Contents/Helpers`, ad-hoc signature, or Developer ID with the hardened runtime when `SHOGO_SIGN_IDENTITY` is set) |
 | `engine/riff.h` | RIFF chunk walking for the music formats |
 | `engine/dls.*` | DLS level 1 instrument banks |
 | `engine/music.*` | IMA styles and sections, the DLS synth, the sequencer and playlists, the client's music functions |
