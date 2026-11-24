@@ -4,7 +4,7 @@ Play Monolith's 1998 anime mech shooter on a modern Mac. No Windows, no emulator
 virtual machine: Shogo runs natively on Apple Silicon, with sharp high-resolution graphics,
 full music and sound, and the original campaign from start to finish.
 
-You bring your own copy of the game (from GOG); this project gives it a new engine to run on.
+You bring your own copy of the game (from GOG or Steam); this project gives it a new engine to run on.
 
 ## What you get
 
@@ -23,11 +23,13 @@ You bring your own copy of the game (from GOG); this project gives it a new engi
 ## What you need
 
 - A Mac with Apple Silicon (M1 or newer).
-- Shogo from [GOG](https://www.gog.com/game/shogo_mobile_armor_division). You only need
-  the Windows installer file (`setup_shogo_-_mobile_armor_division_….exe`), downloaded from
-  your GOG library — you don't need a PC to run it.
-
-The Steam version isn't supported yet.
+- Shogo from [GOG](https://www.gog.com/game/shogo_mobile_armor_division) or
+  [Steam](https://store.steampowered.com/app/610860). You don't need a PC:
+  - **GOG:** the Windows installer file (`setup_shogo_-_mobile_armor_division_….exe`),
+    downloaded from your GOG library.
+  - **Steam:** Steam on the Mac won't download Shogo, because it's a Windows game. Valve's
+    command-line tool SteamCMD can, and you can install it with [Homebrew](https://brew.sh).
+    The launcher shows the two commands to run in Terminal and has buttons to copy them.
 
 **Mac only, on purpose.** This project is about making Shogo run as well as possible on
 Apple Silicon Macs, so it uses Metal and other macOS features directly. Windows and Linux
@@ -37,12 +39,24 @@ to fork the project and take it there yourself.
 ## Getting started
 
 1. **Open `Shogo.app`.** The launcher appears.
-2. **Import your game.** Click **Import from GOG installer…** and pick the GOG installer
-   (or just drag it onto the window). It takes a few seconds; the launcher reads the game
-   straight out of the installer and checks every file, without running any Windows code.
+2. **Import your game.**
+   - **GOG:** click **Import from GOG…** and pick the GOG installer (or just drag it onto
+     the window). It takes a few seconds; the launcher reads the game straight out of the
+     installer and checks every file, without running any Windows code.
+   - **Steam:** point at **Import from Steam…** and the launcher shows three steps, with
+     buttons that copy each Terminal command for you:
+     1. Install SteamCMD with [Homebrew](https://brew.sh): `brew install --cask steamcmd`.
+     2. Download Shogo with SteamCMD. Put your Steam username in the copied command; it
+        asks for your password and Steam Guard code, and saves the game to
+        `~/Downloads/Shogo Steam`.
+     3. Click **Import from Steam…** and pick that folder (the one with `SHOGO.REZ` in it),
+        or drag the folder onto the window. A Steam copy from a PC
+        (`steamapps/common/Shogo`) works too.
+
+     Once it's imported, you can delete the download.
 3. **Press Play.** That's it.
 
-Importing again later (say, after re-downloading from GOG) keeps your saves and key bindings.
+Importing again later (say, after downloading the game again) keeps your saves and key bindings.
 
 > Right now you build `Shogo.app` yourself — there's no ready-made download yet. See
 > [Building it](#building-it) below.

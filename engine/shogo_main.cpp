@@ -114,11 +114,11 @@ int main(int argc, char **argv)
                    f.winver.empty() ? "" : (" [" + f.winver + "]").c_str());
         return 0;
     }
-    // --import <setup.exe> <dir>: the launcher's import, from the command line.
+    // --import <setup.exe or Steam folder> <dir>: the launcher's import, from the command line.
     if (argc == 4 && !strcmp(argv[1], "--import")) {
         std::string err;
         int last = -1;
-        bool ok = shogo::importFromGogInstaller(argv[2], argv[3], [&](float p, const std::string &what) {
+        bool ok = shogo::importGame(argv[2], argv[3], [&](float p, const std::string &what) {
             int pct = int(p * 100);
             if (pct / 10 != last / 10) printf("import: %3d%% %s\n", pct, what.c_str()), fflush(stdout), last = pct;
         }, &err);
@@ -139,7 +139,7 @@ int main(int argc, char **argv)
     if (fromLauncher && !dataGiven) {
         std::string data = shogo::defaultGameDataDir();
         if (!shogo::hasGameData(data) || chdir(data.c_str()) != 0) {
-            std::string msg = "No Shogo game data in " + data + ". Open Shogo and import it from GOG's installer.";
+            std::string msg = "No Shogo game data in " + data + ". Open Shogo and import it from GOG or Steam.";
             fprintf(stderr, "%s\n", msg.c_str());
             SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Shogo", msg.c_str(), nullptr);
             return 1;
@@ -195,7 +195,7 @@ int main(int argc, char **argv)
         }
         SDL_SetRenderVSync(renderer, 1);
     }
-    if (SDL_Surface *icon = shogo::loadDockIcon(".")) {  // GOG's icon, if the data has it
+    if (SDL_Surface *icon = shogo::loadDockIcon(".")) {  // GOG's or Steam's icon, if the data has it
         SDL_SetWindowIcon(window, icon);
         SDL_DestroySurface(icon);
     }

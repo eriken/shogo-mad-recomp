@@ -63,6 +63,14 @@ void text(SDL_Renderer *r, float x, float y, const std::string &s, int scale, Co
     SDL_RenderDebugText(r, x / scale, y / scale, s.c_str());
     SDL_SetRenderScale(r, 1, 1);
 }
+// At 3/4 size (6 px a character): long single lines.
+void smallText(SDL_Renderer *r, float x, float y, const std::string &s, Color c)
+{
+    SDL_SetRenderScale(r, 0.75f, 0.75f);
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, 255);
+    SDL_RenderDebugText(r, x / 0.75f, y / 0.75f, s.c_str());
+    SDL_SetRenderScale(r, 1, 1);
+}
 // Centred in [x0, x0 + w).
 void centered(SDL_Renderer *r, float x0, float w, float y, const std::string &s, int scale, Color c)
 {
@@ -150,16 +158,16 @@ public:
         if (m_thread.joinable()) m_thread.join();
     }
     bool busy() const { return m_busy; }
-    void start(const std::string &installer, const std::string &dir)
+    void start(const std::string &source, const std::string &dir)
     {
         if (m_busy) return;
         if (m_thread.joinable()) m_thread.join();
         m_busy = true;
         m_finished = false;
         m_error.clear();
-        m_thread = std::thread([this, installer, dir] {
+        m_thread = std::thread([this, source, dir] {
             std::string err;
-            bool ok = importFromGogInstaller(installer, dir, [this](float p, const std::string &what) {
+            bool ok = importGame(source, dir, [this](float p, const std::string &what) {
                 std::lock_guard<std::mutex> g(m_lock);
                 m_progress = p;
                 m_what = what;
@@ -214,8 +222,37 @@ void SDLCALL onPicked(void *user, const char *const *files, int)
     p->path = files[0];
 }
 
-enum Row { RowPlay, RowImport, RowQuit, RowCount };
-const char *kRows[RowCount] = {"Play", "Import from GOG...", "Quit"};
+enum Row { RowPlay, RowImport, RowSteam, RowQuit, RowCount };
+const char *kRows[RowCount] = {"Play", "Import from GOG...", "Import from Steam...", "Quit"};
+
+// The Steam help under the menu: how to get the game with SteamCMD, a step
+// and a button each (copying the two Terminal commands, picking the folder
+// SteamCMD downloaded the game into). Each line fits the panel (44 chars).
+enum Button { ButtonInstall, ButtonDownload, ButtonFolder, ButtonCount };
+const char kSteamIntro[] = "Shogo on Steam is Windows-only. To get it:";
+const char *kSteps[ButtonCount] = {"1. Install SteamCMD with Homebrew (brew.sh):", "2. Download Shogo (add your Steam username):",
+                                   "3. Pick the folder: Downloads/Shogo Steam"};
+// The copy buttons show what they copy (the download command is too long to
+// fit, so it's named), with a copy icon at their right end.
+const char *kButtons[ButtonCount] = {"brew install --cask steamcmd", "SteamCMD download command", "Choose the Shogo folder..."};
+
+// The copy icon: two overlapping pages; a tick for a moment after copying.
+void copyIcon(SDL_Renderer *r, float x, float y, Color c, bool copied)
+{
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, 255);
+    if (copied) {
+        for (float d = 0; d < 2; ++d) {  // 2 px thick
+            SDL_RenderLine(r, x + 1, y + 6 + d, x + 4, y + 9 + d);
+            SDL_RenderLine(r, x + 4, y + 9 + d, x + 11, y + 1 + d);
+        }
+        return;
+    }
+    SDL_FRect back{x + 4, y, 8, 9}, front{x, y + 3, 8, 9};
+    SDL_RenderRect(r, &back);
+    fill(r, front.x, front.y, front.w, front.h, kBarBg);  // hides the back page's corner
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, 255);
+    SDL_RenderRect(r, &front);
+}
 
 // The launcher used to keep the graphics settings and intro movies in
 // ~/Library/Application Support/Shogo Recomp/launcher.cfg ("name value"
@@ -255,35 +292,29 @@ const float kRowX = kArtW + 12, kRowY = 112, kRowH = 32, kRowW = kW - kArtW - 24
 
 SDL_Surface *loadDockIcon(const std::string &dataDir)
 {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    for (auto it = fs::directory_iterator(dataDir, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
-        std::string name = it->path().filename().string();
-        for (char &c : name) c = char(tolower((unsigned char)c));
-        if (name.rfind("goggame-", 0) != 0 || it->path().extension() != ".ico") continue;
-        std::vector<uint8_t> data;
-        if (FILE *f = fopen(it->path().c_str(), "rb")) {
-            uint8_t buf[65536];
-            for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0;) data.insert(data.end(), buf, buf + n);
-            fclose(f);
-        }
-        int w = 0, h = 0;
-        std::vector<uint8_t> rgba;
-        if (!decodeImageRGBA(data, w, h, rgba)) continue;
-        SDL_Surface *icon = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
-        if (!icon) return nullptr;
-        for (int y = 0; y < h; ++y)
-            memcpy(static_cast<uint8_t *>(icon->pixels) + size_t(y) * size_t(icon->pitch), &rgba[size_t(y) * size_t(w) * 4],
-                   size_t(w) * 4);
-        return icon;
+    std::string path = findIconFile(dataDir);
+    if (path.empty()) return nullptr;
+    std::vector<uint8_t> data;
+    if (FILE *f = fopen(path.c_str(), "rb")) {
+        uint8_t buf[65536];
+        for (size_t n; (n = fread(buf, 1, sizeof buf, f)) > 0;) data.insert(data.end(), buf, buf + n);
+        fclose(f);
     }
-    return nullptr;
+    int w = 0, h = 0;
+    std::vector<uint8_t> rgba;
+    if (!decodeImageRGBA(data, w, h, rgba)) return nullptr;
+    SDL_Surface *icon = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
+    if (!icon) return nullptr;
+    for (int y = 0; y < h; ++y)
+        memcpy(static_cast<uint8_t *>(icon->pixels) + size_t(y) * size_t(icon->pitch), &rgba[size_t(y) * size_t(w) * 4],
+               size_t(w) * 4);
+    return icon;
 }
 
 namespace {
 
 // The launcher's Dock icon, so it isn't mistaken for the game (whose icon is
-// GOG's): a dark tile with the splash screen's red "SHOGO" banner (or the
+// GOG's or Steam's): a dark tile with the splash screen's red "SHOGO" banner (or the
 // launcher's own "SHOGO" title before the data is imported) over "LAUNCHER".
 // Drawn here from the player's data, so the app ships no art of its own.
 SDL_Surface *makeLauncherIcon(const Surface *splash)
@@ -380,22 +411,48 @@ int runLauncher(const std::string &exe)
     Importer importer;
     Picked picked;
     pid_t game = 0;
+    // The Steam steps: shown once Import from Steam is selected, and kept
+    // while the mouse crosses Quit on its way down to their buttons.
+    bool steamHelp = false;
+    // Quit, under the mouse while the Steam steps show: selected only once the
+    // pointer rests there, so crossing it on the way down to the steps' buttons
+    // doesn't hide them.
+    Uint64 quitHoverSince = 0;
+    int copied = -1;  // the copy button just pressed, and when
+    Uint64 copiedAt = 0;
+    SDL_FRect buttons[ButtonCount] = {};  // where the help's buttons were drawn
 
-    auto startImport = [&](const std::string &installer) {
+    auto startImport = [&](const std::string &source) {
         if (game > 0) {
             message = "Quit Shogo before importing again.";
             messageIsError = true;
             return;
         }
         message.clear();
-        importer.start(installer, dataDir);
+        importer.start(source, dataDir);
+    };
+    auto press = [&](int button) {
+        switch (button) {
+        case ButtonInstall:
+        case ButtonDownload:
+            SDL_SetClipboardText(button == ButtonInstall ? kSteamCmdInstall : kSteamCmdDownload);
+            copied = button, copiedAt = SDL_GetTicks();  // the icon turns to a tick: no message
+            break;
+        case ButtonFolder: {
+            const char *home = getenv("HOME");
+            std::string downloads = std::string(home ? home : "") + "/Downloads";
+            SDL_ShowOpenFolderDialog(onPicked, &picked, window, downloads.c_str(), false);
+            break;
+        }
+        default: break;
+        }
     };
     auto choose = [&](int row) -> bool {  // false: quit
         if (importer.busy()) return true;
         switch (row) {
         case RowPlay: {
             if (!ready) {
-                message = "Import Shogo from GOG's installer first.";
+                message = "Import Shogo from GOG or Steam first.";
                 messageIsError = true;
                 break;
             }
@@ -429,10 +486,24 @@ int runLauncher(const std::string &exe)
             SDL_ShowOpenFileDialog(onPicked, &picked, window, filters, 1, downloads.c_str(), false);
             break;
         }
+        case RowSteam:
+            // The folder picker, with the steps to download the game behind it
+            // (cancel the picker to read them).
+            message.clear();
+            press(ButtonFolder);
+            break;
         case RowQuit: return false;
         }
         return true;
     };
+    auto buttonAt = [&](float x, float y) {
+        if (!steamHelp || importer.busy()) return -1;
+        for (int i = 0; i < ButtonCount; ++i)
+            if (x >= buttons[i].x && x < buttons[i].x + buttons[i].w && y >= buttons[i].y && y < buttons[i].y + buttons[i].h)
+                return i;
+        return -1;
+    };
+    int hoverButton = -1;
     auto rowAt = [&](float x, float y) {
         for (int i = 0; i < RowCount; ++i)
             if (x >= kRowX && x < kRowX + kRowW && y >= kRowY + i * kRowH - 10 && y < kRowY + i * kRowH + kRowH - 10)
@@ -443,8 +514,10 @@ int runLauncher(const std::string &exe)
     // Testing: SHOGO_LAUNCHER_IMPORT=<installer> starts an import,
     // SHOGO_LAUNCHER_PLAY=1 presses Play once the data is ready, and
     // SHOGO_LAUNCHER_SHOT=<file.bmp>@<seconds> saves the window then quits,
-    // and SHOGO_LAUNCHER_ICON=<file.bmp> saves the Dock icon.
+    // SHOGO_LAUNCHER_ICON=<file.bmp> saves the Dock icon, and
+    // SHOGO_LAUNCHER_STEAM=1 selects Import from Steam.
     if (const char *imp = getenv("SHOGO_LAUNCHER_IMPORT")) startImport(imp);
+    if (getenv("SHOGO_LAUNCHER_STEAM")) selected = RowSteam;
     bool autoPlay = getenv("SHOGO_LAUNCHER_PLAY") != nullptr;
     std::string shotFile;
     double shotAt = 0;
@@ -458,12 +531,14 @@ int runLauncher(const std::string &exe)
     bool running = true;
     while (running) {
         SDL_Event e;
-        bool got = SDL_WaitEventTimeout(&e, importer.busy() || game > 0 ? 50 : 250);
+        bool waiting = quitHoverSince || copied >= 0;  // something to redraw soon
+        bool got = SDL_WaitEventTimeout(&e, importer.busy() || game > 0 || waiting ? 50 : 250);
         while (got) {
             SDL_ConvertEventToRenderCoordinates(renderer, &e);
             switch (e.type) {
             case SDL_EVENT_QUIT: running = false; break;
             case SDL_EVENT_KEY_DOWN:
+                quitHoverSince = 0;
                 if (e.key.key == SDLK_UP) selected = (selected + RowCount - 1) % RowCount;
                 else if (e.key.key == SDLK_DOWN) selected = (selected + 1) % RowCount;
                 else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_SPACE)
@@ -472,16 +547,23 @@ int runLauncher(const std::string &exe)
                 break;
             case SDL_EVENT_MOUSE_MOTION: {
                 int row = rowAt(e.motion.x, e.motion.y);
-                if (row >= 0) selected = row;
+                if (row == RowQuit && selected == RowSteam && steamHelp) {
+                    if (!quitHoverSince) quitHoverSince = SDL_GetTicks();
+                } else {
+                    quitHoverSince = 0;
+                    if (row >= 0) selected = row;
+                }
+                hoverButton = buttonAt(e.motion.x, e.motion.y);
                 break;
             }
             case SDL_EVENT_MOUSE_BUTTON_UP:
                 if (e.button.button == SDL_BUTTON_LEFT) {
                     int row = rowAt(e.button.x, e.button.y);
                     if (row >= 0) running = choose(row) && running;
+                    else if (int b = buttonAt(e.button.x, e.button.y); b >= 0) press(b);
                 }
                 break;
-            case SDL_EVENT_DROP_FILE:  // the installer dropped on the window
+            case SDL_EVENT_DROP_FILE:  // the installer or a Steam folder dropped on the window
                 if (e.drop.data && !importer.busy()) startImport(e.drop.data), SDL_RaiseWindow(window);
                 break;
             default: break;
@@ -527,6 +609,10 @@ int runLauncher(const std::string &exe)
             }
         }
 
+        if (quitHoverSince && SDL_GetTicks() - quitHoverSince >= 250) selected = RowQuit, quitHoverSince = 0;
+        if (copied >= 0 && SDL_GetTicks() - copiedAt >= 1500) copied = -1;
+        steamHelp = selected == RowSteam;
+
         // Draw: the splash (or the title, before the import) on the left,
         // the menu panel on the right.
         fill(renderer, 0, 0, kW, kH, kBg);
@@ -563,11 +649,27 @@ int runLauncher(const std::string &exe)
         } else {
             std::string status = !message.empty() ? message
                                  : ready ? "Game data: " + tildePath(dataDir)
-                                         : "No game data yet: import Shogo from GOG's installer.";
-            y = paragraph(renderer, kPanelX, y, status, messageIsError ? kAccent : kGold, 4) + 10;
-            if (selected == RowPlay && ready)
+                                         : "No game data yet: import Shogo from GOG or Steam.";
+            // The game data's path on one line, in the small font (it's too long for the panel otherwise).
+            if (message.empty() && ready) smallText(renderer, kPanelX, y, status, kGold), y += 20;
+            else y = paragraph(renderer, kPanelX, y, status, messageIsError ? kAccent : kGold, 4) + 10;
+            if (steamHelp) {
+                text(renderer, kPanelX, y, kSteamIntro, 1, kText);
+                y += 20;
+                for (int i = 0; i < ButtonCount; ++i) {
+                    text(renderer, kPanelX, y, kSteps[i], 1, kDim);
+                    y += 14;
+                    buttons[i] = {kPanelX, y, kPanelW, 22};
+                    bool hot = i == hoverButton;
+                    fill(renderer, kPanelX, y, kPanelW, 22, hot ? kRowHi : kBarBg);
+                    fill(renderer, kPanelX, y, 2, 22, kAccent);
+                    text(renderer, kPanelX + 10, y + 7, kButtons[i], 1, hot ? kGold : kText);
+                    if (i != ButtonFolder) copyIcon(renderer, kPanelX + kPanelW - 22, y + 5, hot ? kGold : kDim, i == copied);
+                    y += 30;
+                }
+            } else if (selected == RowPlay && ready)
                 paragraph(renderer, kPanelX, y, "Graphics settings and intro movies: Options, Display in the game.", kDim);
-            if (selected == RowImport)
+            else if (selected == RowImport)
                 paragraph(renderer, kPanelX, y,
                           "Pick setup_shogo_-_mobile_armor_division_*.exe from GOG, or drop it on this window. "
                           "Nothing is installed or run.",

@@ -26,7 +26,7 @@ Building, testing and the inner workings of the Shogo native port. For playing, 
 | Engine: music | The game's interactive music (Microsoft IMA data in `Music\`, [format notes](music-format.md)): our own DLS level 1 synth (looped samples, volume envelopes, LFO, pan) and a section player (the style's pattern for the section's groove level, looped, a random variation per part on each pass, the section's band); the game's playlists for silence, ambient, cruising and hard driving, with their transition sections, switching now, at the next measure or at the end of the section. Its own volume (the music slider) |
 | Engine: movies | Smacker (`.SMK`) movies for the startup logo and intro: our own decoder (palette updates, mono/full/skip/fill blocks, Huffman-coded DPCM sound), full screen and paced by the game clock, interlaced movies shown with their blank lines like the original player, the soundtrack streamed through the mixer; Escape skips. `+DisableMovies 1` skips them |
 | Engine: saves | Quick save/load (F6/F7), the save and load menus, the level-start reload save, and level changes that carry the player over (`SaveObjects`/`RestoreObjects` in our own file format, object references remapped on load, inter-object links, client references so the player is put back into its saved object, the game console's per-level settings). Shogo's original `.sav` files aren't read; portal states aren't saved |
-| App | `Shogo.app`: a launcher that imports the game from GOG's installer (our own Inno Setup 5.5.7 and GOG Galaxy reader, [format notes](installer-format.md)) and starts the game; SDL3 bundled inside |
+| App | `Shogo.app`: a launcher that imports the game from GOG's installer (our own Inno Setup 5.5.7 and GOG Galaxy reader, [format notes](installer-format.md)) or a Steam game folder the player picks (app 610860, Windows-only: downloaded with SteamCMD, the launcher shows the commands; it never looks for the game on its own) and starts the game; SDL3 bundled inside |
 | Engine: not yet | Networking; CD audio (the three levels that ask for a CD track have no music) |
 | Engine: everything else | Logging stubs (every `ClientDE`/`ServerDE` entry point), generated from the API headers |
 
@@ -61,7 +61,8 @@ cmake --build build -j
 
 # 3. Game data for development: the launcher's import, into gamedata/
 #    (the tests and examples below run there; a copy of the installer next to
-#    CMakeLists.txt also enables the installer tests)
+#    CMakeLists.txt also enables the installer tests). A Steam game folder works too:
+#    ./build/shogo --import ~/Downloads/"Shogo Steam" gamedata
 ./build/shogo --import setup_shogo_-_mobile_armor_division_*.exe gamedata
 
 # 4. Play: open build/Shogo.app, or start straight from a game folder
@@ -212,7 +213,7 @@ Layers, from least to most invasive:
 |---|---|
 | `engine/api.h` | The API headers in engine-side mode (`DIRECTENGINE_COMPILE`) |
 | `engine/rez_file.*` | `.REZ` archive reader and layered `ResourceFS` |
-| `engine/pe_resources.*` | Reads string tables and named resources from the game's resource DLLs as data |
+| `engine/pe_resources.*` | Reads string tables and named resources from the game's resource DLLs as data, and Steam's `Start.exe` icon (the Dock icon for a Steam import) |
 | `engine/strings.*` | `HSTRING` objects and `FormatString` |
 | `engine/stub_support.*` + generated `engine_stubs.cpp` | Logging stubs for everything not yet implemented |
 | `engine/surfaces.*` | Software surfaces, PCX decoder, blits |
@@ -235,7 +236,7 @@ Layers, from least to most invasive:
 | `engine/smacker.*` | Smacker movie decoder (video and DPCM audio) |
 | `engine/movie.*` | Movie playback for `StartVideo`/`UpdateVideo`: pacing, full-screen drawing, the soundtrack |
 | `engine/inno_setup.*` | Reads GOG's Inno Setup installer: offsets, header, file and data entries, LZMA (macOS's liblzma), GOG Galaxy's split, zlib-packed files |
-| `engine/game_import.*` | Imports the game from the installer into Application Support; checks a folder holds a finished import |
+| `engine/game_import.*` | Imports the game from GOG's installer or a Steam game folder into Application Support; checks a folder holds a finished import |
 | `engine/launcher.*` | The launcher window (import, Play, the licence notice; splash and Dock icon from the imported data), and the game's Dock icon |
 | `engine/image_read*` | Decodes PNG/ICO through ImageIO (the Dock icon) |
 | `cmake/make_app.cmake` | Assembles `Shogo.app` (game modules, SDL3, Info.plist, the game's own app in `Contents/Helpers`, ad-hoc signature) |

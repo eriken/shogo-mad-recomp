@@ -6,7 +6,7 @@
 namespace shogo {
 
 namespace {
-constexpr uint32_t kRtString = 6;
+constexpr uint32_t kRtIcon = 3, kRtString = 6, kRtGroupIcon = 14;
 constexpr uint32_t kResourceDirectoryIndex = 2;  // IMAGE_DIRECTORY_ENTRY_RESOURCE
 
 struct Reader {
@@ -122,6 +122,8 @@ std::unique_ptr<PEResources> PEResources::parse(std::vector<uint8_t> image, std:
                 }
             } else if (typeId & 0x80000000) {
                 res->m_named[upper(entryName(typeId)) + "/" + upper(entryName(nameId))] = std::move(*data);
+            } else if (typeId == kRtIcon || typeId == kRtGroupIcon) {
+                res->m_named["#" + std::to_string(typeId) + "/" + upper(entryName(nameId))] = std::move(*data);
             }
         });
     });
@@ -134,6 +136,46 @@ std::optional<std::string> PEResources::string(uint32_t id) const
     auto it = m_strings.find(id);
     if (it == m_strings.end()) return std::nullopt;
     return it->second;
+}
+
+std::optional<std::vector<uint8_t>> PEResources::iconFile() const
+{
+    // The first icon group: a GRPICONDIR (6 bytes) and 14-byte entries naming
+    // RT_ICON resources. An .ico file has the same header with 16-byte entries
+    // that give each image's file offset instead of its resource ID.
+    const std::string prefix = "#" + std::to_string(kRtGroupIcon) + "/";
+    auto group = m_named.lower_bound(prefix);
+    if (group == m_named.end() || group->first.compare(0, prefix.size(), prefix) != 0) return std::nullopt;
+    const std::vector<uint8_t> &g = group->second;
+    if (g.size() < 6) return std::nullopt;
+    size_t count = size_t(g[4] | g[5] << 8);
+    if (g.size() < 6 + 14 * count) return std::nullopt;
+    std::vector<uint8_t> header(g.begin(), g.begin() + 6), images;
+    size_t found = 0;
+    std::vector<uint8_t> entries;
+    for (size_t i = 0; i < count; ++i) {
+        const uint8_t *e = &g[6 + 14 * i];
+        uint32_t id = uint32_t(e[12] | e[13] << 8);
+        auto image = m_named.find("#" + std::to_string(kRtIcon) + "/" + std::to_string(id));
+        if (image == m_named.end()) continue;
+        uint32_t size = uint32_t(image->second.size());
+        entries.insert(entries.end(), e, e + 8);  // width, height, colours, reserved, planes, bit count
+        for (int b = 0; b < 4; ++b) entries.push_back(uint8_t(size >> (8 * b)));
+        entries.insert(entries.end(), 4, 0);  // the offset, filled in below
+        images.insert(images.end(), image->second.begin(), image->second.end());
+        ++found;
+    }
+    if (!found) return std::nullopt;
+    header[4] = uint8_t(found), header[5] = uint8_t(found >> 8);
+    uint32_t offset = uint32_t(6 + 16 * found);
+    for (size_t i = 0; i < found; ++i) {
+        uint8_t *e = &entries[16 * i];
+        for (int b = 0; b < 4; ++b) e[12 + b] = uint8_t(offset >> (8 * b));
+        offset += uint32_t(e[8] | e[9] << 8 | e[10] << 16 | uint32_t(e[11]) << 24);
+    }
+    header.insert(header.end(), entries.begin(), entries.end());
+    header.insert(header.end(), images.begin(), images.end());
+    return header;
 }
 
 std::optional<std::vector<uint8_t>> PEResources::named(const std::string &type, const std::string &name) const

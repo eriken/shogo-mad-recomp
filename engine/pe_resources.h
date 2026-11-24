@@ -1,4 +1,5 @@
-// Reads the resource section of a Windows PE file (the game's CRES.DLL / SRES.DLL)
+// Reads the resource section of a Windows PE file (the game's CRES.DLL / SRES.DLL,
+// and the icon of Steam's Start.exe)
 // as plain data. Nothing in the DLL is executed.
 #ifndef SHOGO_ENGINE_PE_RESOURCES_H
 #define SHOGO_ENGINE_PE_RESOURCES_H
@@ -24,6 +25,10 @@ public:
 
     // Raw bytes of a resource with a named type and name, e.g. ("TEXT", "CREDITS").
     std::optional<std::vector<uint8_t>> named(const std::string &type, const std::string &name) const;
+
+    // The first icon group (RT_GROUP_ICON) with its images, as an .ico file;
+    // nullopt if there's none.
+    std::optional<std::vector<uint8_t>> iconFile() const;
 
 private:
     PEResources() = default;

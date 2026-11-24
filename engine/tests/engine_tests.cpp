@@ -27,6 +27,9 @@
 #include "engine/stub_support.h"
 
 #include <algorithm>
+#include <unistd.h>
+#include <fstream>
+#include <filesystem>
 #include <cmath>
 
 #include <cstdarg>
@@ -1243,6 +1246,58 @@ static std::vector<uint8_t> readFile(const std::string &path)
     return out;
 }
 
+// A Steam game folder (made up here, with stand-in files): Steam's own files
+// are left out, the player's saves and configs survive a second import, and
+// an unfinished SteamCMD download, a folder above the game (no searching) or
+// a folder without Shogo is refused.
+static void testSteamFolderImport()
+{
+    namespace fs = std::filesystem;
+    fs::path root = fs::temp_directory_path() / ("shogo-steam-test-" + std::to_string(getpid()));
+    fs::remove_all(root);
+    fs::path steam = root / "library" / "steamapps" / "common" / "Shogo", game = root / "Game";
+    auto write = [](const fs::path &p, const std::string &s) {
+        fs::create_directories(p.parent_path());
+        std::ofstream(p, std::ios::binary) << s;
+    };
+    auto read = [](const fs::path &p) {
+        std::ifstream in(p, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    write(steam / "SHOGO.REZ", "rez");
+    write(steam / "SOUND.REZ", "sound");
+    write(steam / "autoexec.cfg", "\"FarZ\" \"100000\"\n");
+    write(steam / "Save" / "save.txt", "steam");
+    write(steam / "Music" / "Akuma" / "a1.sec", "music");
+    write(steam / "InstallScript.vdf", "vdf");
+    write(steam / "steamapps" / "appmanifest_610860.acf", "\"AppState\"\n{\n\t\"StateFlags\"\t\t\"4\"\n}\n");
+    std::string err;
+    CHECK(!shogo::importFromGameFolder((root / "library").string(), game.string(), nullptr, &err));
+    CHECK(err.find("SHOGO.REZ") != std::string::npos && !shogo::hasGameData(game.string()));
+    err.clear();
+    CHECK(shogo::importFromGameFolder(steam.string(), game.string(), nullptr, &err));
+    CHECK(err.empty() && shogo::hasGameData(game.string()));
+    CHECK(read(game / "Music" / "Akuma" / "a1.sec") == "music");
+    CHECK(!fs::exists(game / "InstallScript.vdf") && !fs::exists(game / "steamapps"));
+    CHECK(read(game / "autoexec.cfg").find("WASD") != std::string::npos);  // the port's bindings, added once
+    write(game / "autoexec.cfg", "mine");
+    write(game / "Save" / "save.txt", "my save");
+    write(steam / "SHOGO.REZ", "rez 2");
+    CHECK(shogo::importFromGameFolder(steam.string(), game.string(), nullptr, &err));
+    CHECK(read(game / "autoexec.cfg") == "mine" && read(game / "Save" / "save.txt") == "my save");
+    CHECK(read(game / "SHOGO.REZ") == "rez 2");
+    // The folder it imports into, an unfinished download, and no Shogo at all.
+    err.clear();
+    CHECK(!shogo::importFromGameFolder(game.string(), game.string(), nullptr, &err) && !err.empty());
+    write(steam / "steamapps" / "appmanifest_610860.acf", "\"AppState\"\n{\n\t\"StateFlags\"\t\t\"1026\"\n}\n");
+    err.clear();
+    CHECK(!shogo::importFromGameFolder(steam.string(), (root / "Other").string(), nullptr, &err));
+    CHECK(err.find("hasn't finished") != std::string::npos);
+    err.clear();
+    CHECK(!shogo::importFromGameFolder(root.string() + "/nothing", (root / "Other").string(), nullptr, &err) && !err.empty());
+    fs::remove_all(root);
+}
+
 // GOG's installer (SHOGO_INSTALLER): the file list, a file's parts, and the
 // filtered executables (their SHA-1 is checked after the filter is undone).
 static void testInstaller(const std::string &installer, const char *gameData)
@@ -1309,6 +1364,7 @@ int main()
     testParticles();
     testDynamicLights();
     testSound();
+    testSteamFolderImport();
     if (const char *dir = getenv("SHOGO_DATA")) {
         printf("Game data tests using %s\n", dir);
         testGameData(dir);
