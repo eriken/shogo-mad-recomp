@@ -208,6 +208,7 @@ Layers, from least to most invasive:
 | `tools/render_check.sh` | Diff Metal against the software renderer on every level |
 | `tools/make_dmg.sh` | Pack `Shogo.app` into a release disk image (signed when `SHOGO_SIGN_IDENTITY` is set) |
 | `tools/notarize.sh` | Notarize a signed disk image with Apple and staple the ticket |
+| `tools/make_icon.sh` | Rebuild `assets/AppIcon.icns` from `assets/AppIcon.svg` (our own icon art; the .icns is committed) |
 
 ## Releasing
 
@@ -269,7 +270,7 @@ for this Mac needs.
 | `engine/game_import.*` | Imports the game from GOG's installer or a Steam game folder into Application Support; checks a folder holds a finished import |
 | `engine/launcher.*` | The launcher window (import, Play, the licence notice; splash and Dock icon from the imported data), and the game's Dock icon |
 | `engine/image_read*` | Decodes PNG/ICO through ImageIO (the Dock icon) |
-| `cmake/make_app.cmake` | Assembles `Shogo.app` (game modules, SDL3, Info.plist, the game's own app in `Contents/Helpers`, ad-hoc signature, or Developer ID with the hardened runtime when `SHOGO_SIGN_IDENTITY` is set) |
+| `cmake/make_app.cmake` | Assembles `Shogo.app` (game modules, SDL3, Info.plist, the app icon, the game's own app in `Contents/Helpers`, ad-hoc signature, or Developer ID with the hardened runtime when `SHOGO_SIGN_IDENTITY` is set) |
 | `engine/riff.h` | RIFF chunk walking for the music formats |
 | `engine/dls.*` | DLS level 1 instrument banks |
 | `engine/music.*` | IMA styles and sections, the DLS synth, the sequencer and playlists, the client's music functions |

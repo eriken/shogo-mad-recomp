@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Shogo.app's icon: an original mech helmet with a lit visor, made for this
+     port (not Monolith's art). The rounded square follows Apple's macOS icon
+     grid (824 of 1024, corner radius 185). Rebuild the .icns with
+     tools/make_icon.sh after changing it. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="#263445"/>
+  <polygon points="452,222 572,222 622,322 402,322" fill="#6c7682"/>
+  <polygon points="312,322 712,322 792,482 752,742 612,812 412,812 272,742 232,482" fill="#8b95a1"/>
+  <polygon points="282,452 742,452 712,562 312,562" fill="#1a1f26"/>
+  <polygon points="332,487 692,487 672,527 352,527" fill="#ff8a2a"/>
+  <rect x="432" y="632" width="160" height="22" rx="8" fill="#6c7682"/>
+  <rect x="432" y="676" width="160" height="22" rx="8" fill="#6c7682"/>
+</svg>

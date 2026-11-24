@@ -1,5 +1,8 @@
 # Assembles Shogo.app from the built pieces (run by the shogo-app target):
-#   cmake -DAPP=... -DEXE=... -DOBJECT=... -DCSHELL=... -DSDL=... -DVERSION=... [-DMINOS=...] -P make_app.cmake
+#   cmake -DAPP=... -DEXE=... -DOBJECT=... -DCSHELL=... -DSDL=... -DVERSION=... -DICON=... [-DMINOS=...] -P make_app.cmake
+# ICON: the app's own icon (assets/AppIcon.icns), shown by Finder, Spotlight and
+# launchers. While the game runs, the Dock shows the game's icon from the
+# imported data instead (see launcher.h).
 # MINOS: the macOS the build targets (CMAKE_OSX_DEPLOYMENT_TARGET), so an older
 # one says the app needs a newer macOS instead of failing to load it.
 if(NOT MINOS)
@@ -9,7 +12,8 @@ endif()
 # (a "variation" under the source licence); never the game's data, which the
 # launcher imports from the player's own GOG installer.
 file(REMOVE_RECURSE "${APP}")
-file(MAKE_DIRECTORY "${APP}/Contents/MacOS" "${APP}/Contents/Frameworks")
+file(MAKE_DIRECTORY "${APP}/Contents/MacOS" "${APP}/Contents/Frameworks" "${APP}/Contents/Resources")
+file(COPY_FILE "${ICON}" "${APP}/Contents/Resources/AppIcon.icns")
 file(COPY "${EXE}" "${OBJECT}" "${CSHELL}" DESTINATION "${APP}/Contents/MacOS")
 
 # SDL3 goes inside the app, so it runs without Homebrew.
@@ -32,6 +36,7 @@ file(WRITE "${APP}/Contents/Info.plist" "<?xml version=\"1.0\" encoding=\"UTF-8\
 <key>CFBundleName</key><string>Shogo Launcher</string>
 <key>CFBundleDisplayName</key><string>Shogo Launcher</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleVersion</key><string>${VERSION}</string>
 <key>LSMinimumSystemVersion</key><string>${MINOS}</string>
@@ -43,7 +48,8 @@ file(WRITE "${APP}/Contents/Info.plist" "<?xml version=\"1.0\" encoding=\"UTF-8\
 # the same program, so the Dock shows it as "Shogo", apart from the launcher.
 # It loads SDL and the game modules from this app.
 set(GAME "${APP}/Contents/Helpers/Shogo.app")
-file(MAKE_DIRECTORY "${GAME}/Contents/MacOS")
+file(MAKE_DIRECTORY "${GAME}/Contents/MacOS" "${GAME}/Contents/Resources")
+file(COPY_FILE "${ICON}" "${GAME}/Contents/Resources/AppIcon.icns")
 file(COPY_FILE "${APP}/Contents/MacOS/shogo" "${GAME}/Contents/MacOS/shogo")
 execute_process(COMMAND install_name_tool -change "@executable_path/../Frameworks/libSDL3.0.dylib"
                         "@executable_path/../../../../Frameworks/libSDL3.0.dylib" "${GAME}/Contents/MacOS/shogo")
@@ -55,6 +61,7 @@ file(WRITE "${GAME}/Contents/Info.plist" "<?xml version=\"1.0\" encoding=\"UTF-8
 <key>CFBundleName</key><string>Shogo</string>
 <key>CFBundleDisplayName</key><string>Shogo</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleIconFile</key><string>AppIcon</string>
 <key>CFBundleShortVersionString</key><string>${VERSION}</string>
 <key>CFBundleVersion</key><string>${VERSION}</string>
 <key>LSMinimumSystemVersion</key><string>${MINOS}</string>
