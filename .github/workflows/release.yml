@@ -104,6 +104,14 @@ jobs:
           NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
           NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
         run: |
+          # Pasted IDs can carry stray spaces or line breaks; say what's wrong
+          # (without the value) when the issuer isn't a UUID.
+          export NOTARY_KEY_ID=$(printf %s "$NOTARY_KEY_ID" | tr -d '[:space:]')
+          export NOTARY_ISSUER=$(printf %s "$NOTARY_ISSUER" | tr -d '[:space:]')
+          if ! printf %s "$NOTARY_ISSUER" | grep -Eqi '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$'; then
+            echo "::error::NOTARY_ISSUER isn't an Issuer ID: ${#NOTARY_ISSUER} characters, expected 36 like xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+            exit 1
+          fi
           export NOTARY_KEY="$RUNNER_TEMP/notary.p8"
           printf '%s\n' "$KEY" > "$NOTARY_KEY"
           tools/notarize.sh "${{ steps.dmg.outputs.path }}"
