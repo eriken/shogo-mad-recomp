@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ShogoNative VERSION 0.2.0 LANGUAGES C CXX)
+project(ShogoNative VERSION 0.2.1 LANGUAGES C CXX)
 
 # Monolith's Shogo v2.2 game source (shogsrc22.zip). Not part of this repository:
 # its EULA forbids redistribution, so each user supplies their own copy.
