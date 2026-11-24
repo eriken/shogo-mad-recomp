@@ -44,6 +44,18 @@ jobs:
           python3 -I tools/is3extract.py third_party/shogsrc22/installer/data.z third_party/shogsrc22/source >/dev/null
           rm -rf _shogo_source
 
+      # Before the long build: a tag's version must match CMakeLists.txt and
+      # have release notes in CHANGELOG.md.
+      - name: Release notes
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          PROJECT=$(sed -n 's/^project(ShogoNative VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          [ "$VERSION" = "$PROJECT" ] || { echo "::error::tag $GITHUB_REF_NAME, but CMakeLists.txt says $PROJECT"; exit 1; }
+          tools/release_notes.sh "$VERSION" > "$RUNNER_TEMP/notes.md" \
+            || { echo "::error::CHANGELOG.md has no section for $VERSION"; exit 1; }
+          cat "$RUNNER_TEMP/notes.md"
+
       - name: Install SDL3
         run: brew install sdl3
 
@@ -128,10 +140,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "${{ steps.dmg.outputs.path }}" --title "Shogo $GITHUB_REF_NAME" \
-            --notes "Needs your own copy of Shogo: Mobile Armor Division from GOG or Steam: open the app and import GOG's installer, or the Steam download (the launcher shows how to get it).
-
-          Made by Erik Wessel (shogo-recomp.unlocking364@passmail.net). THIS PORT IS NOT MADE BY OR SUPPORTED BY Monolith Productions, or any of its affiliates and subsidiaries."
+          gh release create "$GITHUB_REF_NAME" "${{ steps.dmg.outputs.path }}" \
+            --title "Shogo $(date -u +%Y-%m-%d)" --notes-file "$RUNNER_TEMP/notes.md"
 
       - name: Remove the signing keychain
         if: always() && steps.sign.outputs.identity != ''

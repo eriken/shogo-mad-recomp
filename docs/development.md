@@ -208,13 +208,18 @@ Layers, from least to most invasive:
 | `tools/render_check.sh` | Diff Metal against the software renderer on every level |
 | `tools/make_dmg.sh` | Pack `Shogo.app` into a release disk image (signed when `SHOGO_SIGN_IDENTITY` is set) |
 | `tools/notarize.sh` | Notarize a signed disk image with Apple and staple the ticket |
+| `tools/release_notes.sh` | Print a version's release notes (its `CHANGELOG.md` section and the standard credit) |
 | `tools/make_icon.sh` | Rebuild `assets/AppIcon.icns` from `assets/AppIcon.svg` (our own icon art; the .icns is committed) |
 
 ## Releasing
 
-Bump `project(... VERSION ...)` in `CMakeLists.txt`, commit, and push a `v<version>`
-tag: the Release workflow builds the app, signs it with the Developer ID certificate,
-notarizes the disk image with Apple, staples the ticket and publishes a GitHub Release.
+Bump `project(... VERSION ...)` in `CMakeLists.txt`, add a `## <version>` section to
+`CHANGELOG.md` (written for players: it becomes the release notes), commit, and push a
+`v<version>` tag. The Release workflow first checks that the tag matches the version and
+that the changelog has its section (`tools/release_notes.sh <version>` shows the notes it
+will use), then builds the app, signs it with the Developer ID certificate, notarizes the
+disk image with Apple, staples the ticket and publishes a GitHub Release titled
+"Shogo <date>".
 It needs these repository secrets:
 
 | Secret | What |
