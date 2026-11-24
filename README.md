@@ -38,7 +38,10 @@ to fork the project and take it there yourself.
 
 ## Getting started
 
-1. **Open `Shogo.app`.** The launcher appears.
+1. **Open `Shogo.app`.** The launcher appears. The app isn't notarized by Apple yet, so the
+   first time you open a downloaded copy, macOS says it couldn't verify "Shogo". Click
+   **Done**, then open **System Settings > Privacy & Security**, click **Open Anyway** next
+   to the Shogo message, and confirm. After that it opens normally.
 2. **Import your game.**
    - **GOG:** click **Import from GOG…** and pick the GOG installer (or just drag it onto
      the window). It takes a few seconds; the launcher reads the game straight out of the
@@ -58,7 +61,8 @@ to fork the project and take it there yourself.
 
 Importing again later (say, after downloading the game again) keeps your saves and key bindings.
 
-> Right now you build `Shogo.app` yourself — there's no ready-made download yet. See
+> Get `Shogo.app` from the [Releases](https://github.com/eriken/shogo-mad-recomp/releases)
+> page (open the `.dmg` and drag Shogo to Applications), or build it yourself: see
 > [Building it](#building-it) below.
 
 ## Settings

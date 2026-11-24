@@ -75,6 +75,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" "${{ steps.dmg.outputs.path }}" --title "Shogo $GITHUB_REF_NAME" \
-            --notes "Needs your own copy of Shogo: Mobile Armor Division from GOG: open the app and import GOG's installer. The app isn't notarized yet: the first time, right-click it and choose Open.
+            --notes "Needs your own copy of Shogo: Mobile Armor Division from GOG or Steam: open the app and import GOG's installer, or the Steam download (the launcher shows how to get it).
+
+          The app isn't notarized yet, so the first time macOS says it couldn't verify \"Shogo\". Click Done, then open System Settings > Privacy & Security, click Open Anyway next to the Shogo message, and confirm. It opens normally after that.
 
           Made by Erik Wessel (shogo-recomp.unlocking364@passmail.net). THIS PORT IS NOT MADE BY OR SUPPORTED BY Monolith Productions, or any of its affiliates and subsidiaries."
