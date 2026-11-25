@@ -3,6 +3,12 @@
 Each release's section here becomes its release notes on GitHub, so write it for
 players. The Release workflow refuses to publish a version that has no section.
 
+## 0.3.1
+
+- **Uninstall asks in the launcher.** Uninstall no longer opens a separate dialog box. The
+  first press asks you to press Enter (or click) again to confirm. Esc, choosing another
+  row, or waiting a few seconds calls it off.
+
 ## 0.3.0
 
 - **The game moves to `~/Games/Shogo`.** The imported game now sits in `~/Games/Shogo`.
