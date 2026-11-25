@@ -9,6 +9,7 @@
 #include "engine/math3d.h"
 #include "engine/movement.h"
 #include "engine/stub_support.h"
+#include "shogo_win32.h"
 
 #include <dirent.h>
 
@@ -1230,10 +1231,18 @@ void GameSession::installClient(ClientDE *c, ClientContext *context)
     HOOK("GetServerConVarValueString", vGetServerConVarValueString);
 }
 
+// A config file's path: the player's (autoexec.cfg) in their own folder.
+static std::string configPath(const std::string &name)
+{
+    char native[1024];
+    shogo_native_path(name.c_str(), native, sizeof native);
+    return native;
+}
+
 bool GameSession::readConfigFile(const std::string &name)
 {
     FILE *f = nullptr;
-    for (const std::string &path : {name, "__support/app/" + name}) {
+    for (const std::string &path : {configPath(name), name, "__support/app/" + name}) {
         // Case-insensitive match within the directory.
         std::string dir = path.substr(0, path.find_last_of('/') == std::string::npos ? 0 : path.find_last_of('/') + 1);
         std::string file = path.substr(dir.size());
@@ -1270,11 +1279,13 @@ void GameSession::runCommandLine(const std::vector<std::string> &commands)
 
 bool GameSession::writeConfigFile(const std::string &name)
 {
-    // Write over the file the game folder has, whatever its case.
-    std::string path = name;
-    if (DIR *d = opendir(".")) {
+    // Write over the file there is, whatever its case.
+    std::string path = configPath(name);
+    size_t slash = path.find_last_of('/');
+    std::string dir = slash == std::string::npos ? "" : path.substr(0, slash + 1), file = path.substr(dir.size());
+    if (DIR *d = opendir(dir.empty() ? "." : dir.c_str())) {
         while (dirent *e = readdir(d))
-            if (strcasecmp(e->d_name, name.c_str()) == 0) path = e->d_name;
+            if (strcasecmp(e->d_name, file.c_str()) == 0) path = dir + e->d_name;
         closedir(d);
     }
     auto quoted = [](const std::string &s) { return "\"" + s + "\""; };

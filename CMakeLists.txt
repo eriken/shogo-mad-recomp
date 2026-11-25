@@ -131,7 +131,7 @@ add_library(shogo_engine STATIC
     engine/inno_setup.cpp engine/game_import.cpp
     engine/stub_support.cpp "${SHOGO_STUBS_CPP}")
 target_include_directories(shogo_engine PUBLIC "${CMAKE_SOURCE_DIR}")
-target_link_libraries(shogo_engine PUBLIC shogo_game_flags
+target_link_libraries(shogo_engine PUBLIC shogo_game_flags shogo_compat
     "-framework CoreFoundation" "-framework CoreGraphics" "-framework CoreText" "-framework ImageIO"
     lzma z)
 

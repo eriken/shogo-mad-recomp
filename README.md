@@ -59,6 +59,17 @@ to fork the project and take it there yourself.
 
 Importing again later (say, after downloading the game again) keeps your saves and key bindings.
 
+### Where your files are
+
+| What | Where |
+|---|---|
+| The game (what the import copies) | `~/Games/Shogo` |
+| Your saves and settings (key bindings, display options) | `~/Library/Application Support/Shogo Recomp/Game` |
+
+**Uninstall…** in the launcher removes `~/Games/Shogo` and nothing else. Your saves and
+settings stay where they are, ready for when you import the game again. To remove those
+too, delete the `Shogo Recomp` folder yourself.
+
 > Get `Shogo.app` from the [Releases](https://github.com/eriken/shogo-mad-recomp/releases)
 > page (open the `.dmg` and drag Shogo to Applications), or build it yourself: see
 > [Building it](#building-it) below.

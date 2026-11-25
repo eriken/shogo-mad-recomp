@@ -25,6 +25,8 @@
 #include "engine/server.h"
 #include "engine/input.h"
 #include "engine/stub_support.h"
+#include "engine/savegame.h"
+#include "shogo_win32.h"
 
 #include <algorithm>
 #include <unistd.h>
@@ -1247,15 +1249,16 @@ static std::vector<uint8_t> readFile(const std::string &path)
 }
 
 // A Steam game folder (made up here, with stand-in files): Steam's own files
-// are left out, the player's saves and configs survive a second import, and
-// an unfinished SteamCMD download, a folder above the game (no searching) or
-// a folder without Shogo is refused.
+// are left out, the player's saves and configs go to their own folder and
+// survive a second import, and an unfinished SteamCMD download, a folder
+// above the game (no searching) or a folder without Shogo is refused.
 static void testSteamFolderImport()
 {
     namespace fs = std::filesystem;
     fs::path root = fs::temp_directory_path() / ("shogo-steam-test-" + std::to_string(getpid()));
     fs::remove_all(root);
-    fs::path steam = root / "library" / "steamapps" / "common" / "Shogo", game = root / "Game";
+    fs::path steam = root / "library" / "steamapps" / "common" / "Shogo", game = root / "Games" / "Shogo",
+             player = root / "Player";
     auto write = [](const fs::path &p, const std::string &s) {
         fs::create_directories(p.parent_path());
         std::ofstream(p, std::ios::binary) << s;
@@ -1272,29 +1275,99 @@ static void testSteamFolderImport()
     write(steam / "InstallScript.vdf", "vdf");
     write(steam / "steamapps" / "appmanifest_610860.acf", "\"AppState\"\n{\n\t\"StateFlags\"\t\t\"4\"\n}\n");
     std::string err;
-    CHECK(!shogo::importFromGameFolder((root / "library").string(), game.string(), nullptr, &err));
+    CHECK(!shogo::importFromGameFolder((root / "library").string(), game.string(), player.string(), nullptr, &err));
     CHECK(err.find("SHOGO.REZ") != std::string::npos && !shogo::hasGameData(game.string()));
     err.clear();
-    CHECK(shogo::importFromGameFolder(steam.string(), game.string(), nullptr, &err));
+    CHECK(shogo::importFromGameFolder(steam.string(), game.string(), player.string(), nullptr, &err));
     CHECK(err.empty() && shogo::hasGameData(game.string()));
     CHECK(read(game / "Music" / "Akuma" / "a1.sec") == "music");
     CHECK(!fs::exists(game / "InstallScript.vdf") && !fs::exists(game / "steamapps"));
-    CHECK(read(game / "autoexec.cfg").find("WASD") != std::string::npos);  // the port's bindings, added once
-    write(game / "autoexec.cfg", "mine");
-    write(game / "Save" / "save.txt", "my save");
+    CHECK(!fs::exists(game / "autoexec.cfg") && !fs::exists(game / "Save"));  // the player's, in their folder
+    CHECK(read(player / "autoexec.cfg").find("WASD") != std::string::npos);  // the port's bindings, added once
+    CHECK(read(player / "Save" / "save.txt") == "steam");
+    write(player / "autoexec.cfg", "mine");
+    write(player / "Save" / "save.txt", "my save");
     write(steam / "SHOGO.REZ", "rez 2");
-    CHECK(shogo::importFromGameFolder(steam.string(), game.string(), nullptr, &err));
-    CHECK(read(game / "autoexec.cfg") == "mine" && read(game / "Save" / "save.txt") == "my save");
+    CHECK(shogo::importFromGameFolder(steam.string(), game.string(), player.string(), nullptr, &err));
+    CHECK(read(player / "autoexec.cfg") == "mine" && read(player / "Save" / "save.txt") == "my save");
     CHECK(read(game / "SHOGO.REZ") == "rez 2");
+    // Uninstalling removes the game data only; a folder with saves in it is refused.
+    write(root / "Games" / "Other" / "keep.txt", "other game");
+    CHECK(shogo::uninstallGame(game.string(), &err));
+    CHECK(!fs::exists(game) && read(root / "Games" / "Other" / "keep.txt") == "other game");
+    CHECK(read(player / "autoexec.cfg") == "mine" && read(player / "Save" / "save.txt") == "my save");
+    CHECK(shogo::uninstallGame(game.string(), &err));  // nothing left: nothing to do
+    err.clear();
+    CHECK(!shogo::uninstallGame((root / "Games" / "Other").string(), &err) && !err.empty());
+    fs::path selfContained = root / "Whole";  // the command line's --import: one folder for everything
+    CHECK(shogo::importFromGameFolder(steam.string(), selfContained.string(), selfContained.string(), nullptr, &err));
+    CHECK(read(selfContained / "Save" / "save.txt") == "steam");
+    err.clear();
+    CHECK(!shogo::uninstallGame(selfContained.string(), &err) && err.find("saves") != std::string::npos);
+    CHECK(fs::exists(selfContained / "SHOGO.REZ"));
     // The folder it imports into, an unfinished download, and no Shogo at all.
     err.clear();
-    CHECK(!shogo::importFromGameFolder(game.string(), game.string(), nullptr, &err) && !err.empty());
+    CHECK(!shogo::importFromGameFolder(selfContained.string(), selfContained.string(), player.string(), nullptr, &err) &&
+          !err.empty());
     write(steam / "steamapps" / "appmanifest_610860.acf", "\"AppState\"\n{\n\t\"StateFlags\"\t\t\"1026\"\n}\n");
     err.clear();
-    CHECK(!shogo::importFromGameFolder(steam.string(), (root / "Other").string(), nullptr, &err));
+    CHECK(!shogo::importFromGameFolder(steam.string(), (root / "Other").string(), player.string(), nullptr, &err));
     CHECK(err.find("hasn't finished") != std::string::npos);
     err.clear();
-    CHECK(!shogo::importFromGameFolder(root.string() + "/nothing", (root / "Other").string(), nullptr, &err) && !err.empty());
+    CHECK(!shogo::importFromGameFolder(root.string() + "/nothing", (root / "Other").string(), player.string(), nullptr,
+                                       &err) &&
+          !err.empty());
+    fs::remove_all(root);
+}
+
+// An import by an older version, game data and player's files together in
+// Application Support: the game data moves to ~/Games, the saves and
+// settings stay. And the game's own paths to them lead to the player's folder.
+static void testOldGameDataMove()
+{
+    namespace fs = std::filesystem;
+    fs::path root = fs::temp_directory_path() / ("shogo-move-test-" + std::to_string(getpid()));
+    fs::remove_all(root);
+    std::string oldHome = getenv("HOME") ? getenv("HOME") : "";
+    setenv("HOME", root.c_str(), 1);
+    fs::path old = shogo::playerDataDir(), game = shogo::defaultGameDataDir();
+    CHECK(old == root / "Library" / "Application Support" / "Shogo Recomp" / "Game" && game == root / "Games" / "Shogo");
+    auto write = [](const fs::path &p, const std::string &s) {
+        fs::create_directories(p.parent_path());
+        std::ofstream(p, std::ios::binary) << s;
+    };
+    std::string err;
+    CHECK(shogo::moveOldGameData(game.string(), &err) && !fs::exists(game));  // nothing to move
+    write(old / "SHOGO.REZ", "rez");
+    write(old / "SOUND.REZ", "sound");
+    write(old / "Music" / "a1.sec", "music");
+    write(old / ".shogo-import", "imported");
+    write(old / "AutoExec.cfg", "mine");
+    write(old / "Save" / "Quick.sav", "my save");
+    write(old / "Save" / "Save21.ini", "[Shogo]");
+    CHECK(shogo::moveOldGameData(game.string(), &err));
+    CHECK(shogo::hasGameData(game.string()) && fs::exists(game / "Music" / "a1.sec"));
+    CHECK(!fs::exists(old / "SHOGO.REZ") && !fs::exists(old / ".shogo-import") && !fs::exists(game / "Save"));
+    CHECK(fs::exists(old / "AutoExec.cfg") && fs::exists(old / "Save" / "Quick.sav") && fs::exists(old / "Save" / "Save21.ini"));
+    CHECK(shogo::moveOldGameData(game.string(), &err));  // done already
+
+    char p[1024];
+    shogo_native_path("Save\\Quick.sav", p, sizeof p);
+    CHECK(std::string(p) == "Save/Quick.sav");  // no player folder: the game folder
+    setenv("SHOGO_PLAYER_DIR", old.c_str(), 1);
+    shogo_native_path("Save\\Quick.sav", p, sizeof p);
+    CHECK(std::string(p) == (old / "Save" / "Quick.sav").string());
+    shogo_native_path("autoexec.cfg", p, sizeof p);
+    CHECK(std::string(p) == (old / "autoexec.cfg").string());
+    shogo_native_path("Saved\\x", p, sizeof p);
+    CHECK(std::string(p) == "Saved/x");
+    shogo_native_path("Worlds\\save", p, sizeof p);
+    CHECK(std::string(p) == "Worlds/save");
+    shogo_native_path("intro.smk", p, sizeof p);
+    CHECK(std::string(p) == "intro.smk");
+    CHECK(shogo::savePath("Save\\Kpalv.sav") == (old / "Save" / "Kpalv.sav").string());
+    unsetenv("SHOGO_PLAYER_DIR");
+    setenv("HOME", oldHome.c_str(), 1);
     fs::remove_all(root);
 }
 
@@ -1365,6 +1438,7 @@ int main()
     testDynamicLights();
     testSound();
     testSteamFolderImport();
+    testOldGameDataMove();
     if (const char *dir = getenv("SHOGO_DATA")) {
         printf("Game data tests using %s\n", dir);
         testGameData(dir);

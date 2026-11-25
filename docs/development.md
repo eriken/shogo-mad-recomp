@@ -272,7 +272,7 @@ for this Mac needs.
 | `engine/smacker.*` | Smacker movie decoder (video and DPCM audio) |
 | `engine/movie.*` | Movie playback for `StartVideo`/`UpdateVideo`: pacing, full-screen drawing, the soundtrack |
 | `engine/inno_setup.*` | Reads GOG's Inno Setup installer: offsets, header, file and data entries, LZMA (macOS's liblzma), GOG Galaxy's split, zlib-packed files |
-| `engine/game_import.*` | Imports the game from GOG's installer or a Steam game folder into Application Support; checks a folder holds a finished import |
+| `engine/game_import.*` | Imports the game from GOG's installer or a Steam game folder into `~/Games/Shogo` (the player's saves and `autoexec.cfg` into Application Support); checks a folder holds a finished import; moves an older import out of Application Support; uninstalls |
 | `engine/launcher.*` | The launcher window (import, Play, the licence notice; splash and Dock icon from the imported data), and the game's Dock icon |
 | `engine/image_read*` | Decodes PNG/ICO through ImageIO (the Dock icon) |
 | `cmake/make_app.cmake` | Assembles `Shogo.app` (game modules, SDL3, Info.plist, the app icon, the game's own app in `Contents/Helpers`, ad-hoc signature, or Developer ID with the hardened runtime when `SHOGO_SIGN_IDENTITY` is set) |

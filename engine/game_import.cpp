@@ -52,6 +52,13 @@ bool addPortBindings(const std::filesystem::path &cfg, std::string *err)
     return true;
 }
 
+// The player's file `rel` goes into playerDir, unless it's there already.
+bool keepPlayers(const std::filesystem::path &playerDir, const std::filesystem::path &rel)
+{
+    std::error_code ec;
+    return std::filesystem::exists(playerDir / rel, ec);
+}
+
 bool sameFolder(const std::filesystem::path &a, const std::filesystem::path &b)
 {
     std::error_code ec;
@@ -59,6 +66,17 @@ bool sameFolder(const std::filesystem::path &a, const std::filesystem::path &b)
 }
 
 }  // namespace
+
+const char kPlayerDirVar[] = "SHOGO_PLAYER_DIR";
+
+bool isPlayerFile(const std::string &relativePath)
+{
+    std::string l = lower(relativePath);
+    for (char &c : l)
+        if (c == '\\') c = '/';
+    if (l.rfind("./", 0) == 0) l.erase(0, 2);
+    return l == "autoexec.cfg" || l == "save" || l.rfind("save/", 0) == 0;
+}
 
 const char kSteamCmdInstall[] = "brew install --cask steamcmd";
 const char kSteamCmdDownload[] =
@@ -100,7 +118,7 @@ bool isGameFolder(const std::filesystem::path &folder, std::string *why)
 
 }  // namespace
 
-bool importFromGameFolder(const std::string &folder, const std::string &dir,
+bool importFromGameFolder(const std::string &folder, const std::string &dir, const std::string &playerDir,
                           const std::function<void(float, const std::string &)> &progress, std::string *err)
 {
     namespace fs = std::filesystem;
@@ -120,14 +138,15 @@ bool importFromGameFolder(const std::string &folder, const std::string &dir,
     }
     // Everything but Steam's own files (SteamCMD's steamapps/, the install
     // script for Steam on Windows). Files the game writes are the player's:
-    // configs and saves already in `dir` stay as they are.
+    // they go into playerDir, where configs and saves already there stay as
+    // they are.
     struct Wanted {
-        fs::path from, rel;
+        fs::path from, rel, to;
         uint64_t size;
     };
     std::vector<Wanted> wanted;
     uint64_t total = 0, done = 0;
-    bool newAutoexec = false;
+    fs::path newAutoexec;  // the autoexec.cfg copied for a player who had none
     for (auto it = fs::recursive_directory_iterator(src, fs::directory_options::skip_permission_denied, ec);
          !ec && it != fs::recursive_directory_iterator(); it.increment(ec)) {
         fs::path rel = it->path().lexically_relative(src);
@@ -138,12 +157,13 @@ bool importFromGameFolder(const std::string &folder, const std::string &dir,
             continue;
         }
         if (!it->is_regular_file(fileEc) || l == "installscript.vdf" || l == ".shogo-import" || l == kSteamIcon) continue;
-        bool players = l == "autoexec.cfg" || l.rfind("save/", 0) == 0;
-        if (players && fs::exists(fs::path(dir) / rel, fileEc)) continue;
-        if (l == "autoexec.cfg") newAutoexec = true;
+        bool players = isPlayerFile(l);
+        if (players && keepPlayers(playerDir, rel)) continue;
+        fs::path to = fs::path(players ? playerDir : dir) / rel;
+        if (l == "autoexec.cfg") newAutoexec = to;
         uint64_t size = it->file_size(fileEc);
         if (fileEc) size = 0;
-        wanted.push_back({it->path(), rel, size});
+        wanted.push_back({it->path(), rel, to, size});
         total += size;
     }
     if (ec) {
@@ -152,7 +172,7 @@ bool importFromGameFolder(const std::string &folder, const std::string &dir,
     }
     std::vector<char> buf(1 << 20);
     for (const Wanted &w : wanted) {
-        fs::path out = fs::path(dir) / w.rel;
+        const fs::path &out = w.to;
         fs::create_directories(out.parent_path(), ec);
         std::string name = w.rel.generic_string();
         if (progress) progress(total ? float(double(done) / double(total)) : 0.0f, name);
@@ -178,7 +198,7 @@ bool importFromGameFolder(const std::string &folder, const std::string &dir,
             return false;
         }
     }
-    if (newAutoexec && !addPortBindings(fs::path(dir) / "autoexec.cfg", err)) return false;
+    if (!newAutoexec.empty() && !addPortBindings(newAutoexec, err)) return false;
     // The Dock icon: Steam has no GOG icon file, but its Start.exe has one.
     for (const char *exe : {"Start.exe", "start.exe"}) {
         std::ifstream in(src / exe, std::ios::binary);
@@ -194,18 +214,81 @@ bool importFromGameFolder(const std::string &folder, const std::string &dir,
     return true;
 }
 
-bool importGame(const std::string &source, const std::string &dir,
+bool importGame(const std::string &source, const std::string &dir, const std::string &playerDir,
                 const std::function<void(float, const std::string &)> &progress, std::string *err)
 {
     std::error_code ec;
-    if (std::filesystem::is_directory(source, ec)) return importFromGameFolder(source, dir, progress, err);
-    return importFromGogInstaller(source, dir, progress, err);
+    if (std::filesystem::is_directory(source, ec)) return importFromGameFolder(source, dir, playerDir, progress, err);
+    return importFromGogInstaller(source, dir, playerDir, progress, err);
 }
 
-std::string defaultGameDataDir()
+namespace {
+std::string home()
 {
-    const char *home = getenv("HOME");
-    return std::string(home ? home : ".") + "/Library/Application Support/Shogo Recomp/Game";
+    const char *h = getenv("HOME");
+    return h ? h : ".";
+}
+}  // namespace
+
+std::string defaultGameDataDir() { return home() + "/Games/Shogo"; }
+
+std::string playerDataDir() { return home() + "/Library/Application Support/Shogo Recomp/Game"; }
+
+bool moveOldGameData(const std::string &dir, std::string *err)
+{
+    namespace fs = std::filesystem;
+    fs::path from(playerDataDir()), to(dir);
+    if (!isFile(from / "SHOGO.REZ") || hasGameData(dir) || sameFolder(from, to)) return true;
+    std::error_code ec;
+    fs::create_directories(to, ec);
+    // Everything but the player's files; the marker last, so a move cut short
+    // isn't taken for a finished import (the next start finishes it).
+    std::vector<fs::path> names;
+    for (auto it = fs::directory_iterator(from, ec); !ec && it != fs::directory_iterator(); it.increment(ec)) {
+        std::string name = it->path().filename().string();
+        if (!isPlayerFile(name) && name != kMarker) names.push_back(name);
+    }
+    if (ec) {
+        *err = "can't read " + from.string() + ": " + ec.message();
+        return false;
+    }
+    if (isFile(from / kMarker)) names.push_back(kMarker);
+    for (const fs::path &name : names) {
+        fs::remove_all(to / name, ec);  // left by a move cut short
+        fs::rename(from / name, to / name, ec);
+        if (ec) {
+            *err = "can't move " + (from / name).string() + " to " + to.string() + ": " + ec.message();
+            return false;
+        }
+    }
+    return true;
+}
+
+bool uninstallGame(const std::string &dir, std::string *err)
+{
+    namespace fs = std::filesystem;
+    fs::path d(dir);
+    std::error_code ec;
+    if (!fs::exists(d, ec)) return true;
+    if (!isFile(d / kMarker) && !isFile(d / "SHOGO.REZ")) {
+        *err = "there's no Shogo game data in " + dir;
+        return false;
+    }
+    for (auto it = fs::directory_iterator(d, ec); !ec && it != fs::directory_iterator(); it.increment(ec))
+        if (isPlayerFile(it->path().filename().string())) {
+            *err = dir + " has saves or settings in it (" + it->path().filename().string() + "): nothing was removed";
+            return false;
+        }
+    if (ec) {
+        *err = "can't read " + dir + ": " + ec.message();
+        return false;
+    }
+    fs::remove_all(d, ec);
+    if (ec) {
+        *err = "can't remove " + dir + ": " + ec.message();
+        return false;
+    }
+    return true;
 }
 
 bool hasGameData(const std::string &dir)
@@ -214,7 +297,7 @@ bool hasGameData(const std::string &dir)
     return isFile(d / kMarker) && isFile(d / "SHOGO.REZ") && isFile(d / "SOUND.REZ");
 }
 
-bool importFromGogInstaller(const std::string &installer, const std::string &dir,
+bool importFromGogInstaller(const std::string &installer, const std::string &dir, const std::string &playerDir,
                             const std::function<void(float, const std::string &)> &progress, std::string *err)
 {
     namespace fs = std::filesystem;
@@ -241,14 +324,16 @@ bool importFromGogInstaller(const std::string &installer, const std::string &dir
     // The English game; not GOG's extras (redistributables, Galaxy files), nor
     // the Windows XP variant of a file. GOG's installer copies the default
     // configs from __support/app into the game folder: so does the import,
-    // keeping configs the player already has (key bindings in autoexec.cfg).
+    // keeping configs the player already has (key bindings in autoexec.cfg,
+    // which goes into playerDir).
     struct Wanted {
         const GogFile *file;
         std::string path;
+        fs::path to;
     };
     std::vector<Wanted> wanted;
     uint64_t total = 0, done = 0;
-    std::string newAutoexec;  // GOG's autoexec.cfg, when the player had none
+    fs::path newAutoexec;  // GOG's autoexec.cfg, when the player had none
     for (const GogFile &f : files) {
         std::string path = f.path, l = lower(f.path);
         // GOG's Galaxy files are left out, except its icon (goggame-*.ico): the Dock icon.
@@ -257,18 +342,18 @@ bool importFromGogInstaller(const std::string &installer, const std::string &dir
         if (!f.languages.empty() && f.languages.find("en-US#") == std::string::npos) continue;
         if (f.winver.find("!") == std::string::npos && f.winver.find("winxp") != std::string::npos) continue;
         if (path.empty() || path[0] == '/' || path.find("..") != std::string::npos) continue;
-        if (l.rfind("__support/app/", 0) == 0) {
-            path = path.substr(strlen("__support/app/"));
-            if (fs::exists(fs::path(dir) / path, ec)) continue;
-            if (lower(path) == "autoexec.cfg") newAutoexec = path;
-        } else if (l.rfind("__support/", 0) == 0) {
-            continue;
-        }
-        wanted.push_back({&f, path});
+        if (l.rfind("__support/", 0) == 0 && l.rfind("__support/app/", 0) != 0) continue;
+        if (l.rfind("__support/app/", 0) == 0) path = path.substr(strlen("__support/app/"));
+        // The player's files (GOG's autoexec.cfg, Save/save.txt) go into playerDir.
+        bool players = isPlayerFile(path), config = l.rfind("__support/app/", 0) == 0;
+        fs::path to = fs::path(players ? playerDir : dir) / path;
+        if ((players || config) && fs::exists(to, ec)) continue;
+        if (lower(path) == "autoexec.cfg") newAutoexec = to;
+        wanted.push_back({&f, path, to});
         total += f.size;
     }
     for (const Wanted &w : wanted) {
-        fs::path out = fs::path(dir) / w.path;
+        const fs::path &out = w.to;
         fs::create_directories(out.parent_path(), ec);
         if (progress) progress(total ? float(double(done) / double(total)) : 0.0f, w.path);
         uint64_t before = done;
@@ -283,7 +368,7 @@ bool importFromGogInstaller(const std::string &installer, const std::string &dir
         *err = "the installer doesn't contain Shogo's game data (SHOGO.REZ)";
         return false;
     }
-    if (!newAutoexec.empty() && !addPortBindings(fs::path(dir) / newAutoexec, err)) return false;
+    if (!newAutoexec.empty() && !addPortBindings(newAutoexec, err)) return false;
     std::ofstream(fs::path(dir) / kMarker) << "imported from " << fs::path(installer).filename().string() << "\n";
     if (progress) progress(1, "done");
     return true;

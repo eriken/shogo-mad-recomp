@@ -39,11 +39,12 @@ public:
 
     static GameSession *instance;
 
-    // Runs a config file (autoexec.cfg...): from the game folder, or the GOG
-    // installer's copy in __support/app.
+    // Runs a config file (autoexec.cfg...): from the player's folder (see
+    // shogo_native_path), the game folder, or the GOG installer's copy in
+    // __support/app.
     bool readConfigFile(const std::string &name);
     // Saves every console variable and the key bindings to a config file in
-    // the game folder (the game reads autoexec.cfg at start, as the original
+    // the player's folder (the game reads autoexec.cfg at start, as the original
     // engine wrote it at exit). Variables the command line set are saved
     // with the value they had before it.
     bool writeConfigFile(const std::string &name);

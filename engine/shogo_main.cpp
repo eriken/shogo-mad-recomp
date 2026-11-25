@@ -1,6 +1,7 @@
 // shogo: the app. Started without a game folder (from Finder, Shogo.app) it
 // opens the launcher, which imports the game data and starts the game as
-// `shogo --play` (data from Application Support). Run from a game folder, or
+// `shogo --play` (game data from ~/Games/Shogo, saves and settings in
+// Application Support). Run from a game folder, or
 // with --data <dir> or +console variables, it plays straight away (testing).
 // The game modules (object.lto.dylib, cshell.dylib) sit next to the executable.
 #include "engine/game_host.h"
@@ -25,6 +26,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
@@ -114,11 +116,12 @@ int main(int argc, char **argv)
                    f.winver.empty() ? "" : (" [" + f.winver + "]").c_str());
         return 0;
     }
-    // --import <setup.exe or Steam folder> <dir>: the launcher's import, from the command line.
+    // --import <setup.exe or Steam folder> <dir>: the launcher's import, from
+    // the command line, into one self-contained folder (saves and all).
     if (argc == 4 && !strcmp(argv[1], "--import")) {
         std::string err;
         int last = -1;
-        bool ok = shogo::importGame(argv[2], argv[3], [&](float p, const std::string &what) {
+        bool ok = shogo::importGame(argv[2], argv[3], argv[3], [&](float p, const std::string &what) {
             int pct = int(p * 100);
             if (pct / 10 != last / 10) printf("import: %3d%% %s\n", pct, what.c_str()), fflush(stdout), last = pct;
         }, &err);
@@ -137,7 +140,12 @@ int main(int argc, char **argv)
     bool fromLauncher = false;
     for (int i = 1; i < argc; ++i) fromLauncher |= !strcmp(argv[i], "--play");
     if (fromLauncher && !dataGiven) {
-        std::string data = shogo::defaultGameDataDir();
+        std::string data = shogo::defaultGameDataDir(), player = shogo::playerDataDir(), err;
+        if (!shogo::moveOldGameData(data, &err)) fprintf(stderr, "Couldn't move the game data: %s\n", err.c_str());
+        // The game's own files (Save\..., autoexec.cfg) go to the player's folder.
+        std::error_code ec;
+        std::filesystem::create_directories(player, ec);
+        setenv(shogo::kPlayerDirVar, player.c_str(), 1);
         if (!shogo::hasGameData(data) || chdir(data.c_str()) != 0) {
             std::string msg = "No Shogo game data in " + data + ". Open Shogo and import it from GOG or Steam.";
             fprintf(stderr, "%s\n", msg.c_str());

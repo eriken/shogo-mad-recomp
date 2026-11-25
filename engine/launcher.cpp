@@ -158,16 +158,16 @@ public:
         if (m_thread.joinable()) m_thread.join();
     }
     bool busy() const { return m_busy; }
-    void start(const std::string &source, const std::string &dir)
+    void start(const std::string &source, const std::string &dir, const std::string &playerDir)
     {
         if (m_busy) return;
         if (m_thread.joinable()) m_thread.join();
         m_busy = true;
         m_finished = false;
         m_error.clear();
-        m_thread = std::thread([this, source, dir] {
+        m_thread = std::thread([this, source, dir, playerDir] {
             std::string err;
-            bool ok = importGame(source, dir, [this](float p, const std::string &what) {
+            bool ok = importGame(source, dir, playerDir, [this](float p, const std::string &what) {
                 std::lock_guard<std::mutex> g(m_lock);
                 m_progress = p;
                 m_what = what;
@@ -222,8 +222,8 @@ void SDLCALL onPicked(void *user, const char *const *files, int)
     p->path = files[0];
 }
 
-enum Row { RowPlay, RowImport, RowSteam, RowQuit, RowCount };
-const char *kRows[RowCount] = {"Play", "Import from GOG...", "Import from Steam...", "Quit"};
+enum Row { RowPlay, RowImport, RowSteam, RowUninstall, RowQuit, RowCount };
+const char *kRows[RowCount] = {"Play", "Import from GOG...", "Import from Steam...", "Uninstall...", "Quit"};
 
 // The Steam help under the menu: how to get the game with SteamCMD, a step
 // and a button each (copying the two Terminal commands, picking the folder
@@ -258,9 +258,9 @@ void copyIcon(SDL_Renderer *r, float x, float y, Color c, bool copied)
 // ~/Library/Application Support/Shogo Recomp/launcher.cfg ("name value"
 // lines); they're in the game's display menu now, saved in autoexec.cfg.
 // Moves the player's old choices there, once the game data exists.
-void migrateLauncherSettings(const std::string &dataDir)
+void migrateLauncherSettings(const std::string &playerDir)
 {
-    std::string old = dataDir.substr(0, dataDir.rfind('/')) + "/launcher.cfg";
+    std::string old = playerDir.substr(0, playerDir.rfind('/')) + "/launcher.cfg";
     FILE *in = fopen(old.c_str(), "r");
     if (!in) return;
     std::string lines;
@@ -276,10 +276,10 @@ void migrateLauncherSettings(const std::string &dataDir)
     }
     fclose(in);
     // Appended, so they win over earlier lines; the game rewrites the file as it quits.
-    std::string config = dataDir + "/autoexec.cfg";
+    std::string config = playerDir + "/autoexec.cfg";
     namespace fs = std::filesystem;
     std::error_code ec;
-    for (auto it = fs::directory_iterator(dataDir, ec); !ec && it != fs::directory_iterator(); it.increment(ec))
+    for (auto it = fs::directory_iterator(playerDir, ec); !ec && it != fs::directory_iterator(); it.increment(ec))
         if (!strcasecmp(it->path().filename().c_str(), "autoexec.cfg")) config = it->path().string();
     if (FILE *out = fopen(config.c_str(), "a")) {
         bool ok = fwrite(lines.data(), 1, lines.size(), out) == lines.size();
@@ -391,8 +391,20 @@ int runLauncher(const std::string &exe)
     SDL_SetRenderLogicalPresentation(renderer, kW, kH, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     SDL_SetRenderVSync(renderer, 1);
 
-    const std::string dataDir = defaultGameDataDir();
+    const std::string dataDir = defaultGameDataDir(), playerDir = playerDataDir();
+    std::string message;
+    bool messageIsError = false;
+    {
+        // An older version's import sits in the player's folder: the game data moves to ~/Games.
+        std::string err;
+        if (!moveOldGameData(dataDir, &err)) message = "Couldn't move the game data: " + err, messageIsError = true;
+    }
     bool ready = hasGameData(dataDir);
+    // Something to uninstall: an import, finished or not.
+    auto installed = [&] {
+        std::error_code ec;
+        return ready || std::filesystem::exists(std::filesystem::path(dataDir) / "SHOGO.REZ", ec);
+    };
     SDL_Texture *splash = nullptr;
     auto loadArt = [&] {  // the splash and the Dock icon, from the imported data once there is some
         if (ready && !splash) splash = loadSplash(renderer, dataDir);
@@ -404,20 +416,19 @@ int runLauncher(const std::string &exe)
         }
     };
     loadArt();
-    if (ready) migrateLauncherSettings(dataDir);
+    if (ready) migrateLauncherSettings(playerDir);
     int selected = ready ? RowPlay : RowImport;
-    std::string message;
-    bool messageIsError = false;
     Importer importer;
     Picked picked;
     pid_t game = 0;
     // The Steam steps: shown once Import from Steam is selected, and kept
     // while the mouse crosses Quit on its way down to their buttons.
     bool steamHelp = false;
-    // Quit, under the mouse while the Steam steps show: selected only once the
-    // pointer rests there, so crossing it on the way down to the steps' buttons
-    // doesn't hide them.
+    // Uninstall or Quit, under the mouse while the Steam steps show: selected
+    // only once the pointer rests there, so crossing them on the way down to
+    // the steps' buttons doesn't hide the steps.
     Uint64 quitHoverSince = 0;
+    int quitHoverRow = RowQuit;
     int copied = -1;  // the copy button just pressed, and when
     Uint64 copiedAt = 0;
     SDL_FRect buttons[ButtonCount] = {};  // where the help's buttons were drawn
@@ -429,7 +440,7 @@ int runLauncher(const std::string &exe)
             return;
         }
         message.clear();
-        importer.start(source, dataDir);
+        importer.start(source, dataDir, playerDir);
     };
     auto press = [&](int button) {
         switch (button) {
@@ -492,6 +503,43 @@ int runLauncher(const std::string &exe)
             message.clear();
             press(ButtonFolder);
             break;
+        case RowUninstall: {
+            if (game > 0) {
+                message = "Quit Shogo before uninstalling it.";
+                messageIsError = true;
+                break;
+            }
+            if (!installed()) {
+                message = "There's no game data to uninstall.";
+                messageIsError = false;
+                break;
+            }
+            std::string ask = "This removes the game data in " + tildePath(dataDir) +
+                              ".\n\nYour saves and settings stay in " + tildePath(playerDir) +
+                              ", ready for when you import Shogo again.";
+            const SDL_MessageBoxButtonData answers[] = {
+                {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Cancel"},
+                {0, 1, "Uninstall"},
+            };
+            const SDL_MessageBoxData box{SDL_MESSAGEBOX_WARNING, window, "Uninstall Shogo?", ask.c_str(), 2, answers, nullptr};
+            int answer = 0;
+            if (!SDL_ShowMessageBox(&box, &answer) || answer != 1) break;
+            std::string err;
+            bool ok = uninstallGame(dataDir, &err);
+            ready = hasGameData(dataDir);
+            if (splash && !ready) SDL_DestroyTexture(splash), splash = nullptr;
+            loadArt();
+            if (ok) {
+                message = "Uninstalled. Your saves and settings are kept.";
+                messageIsError = false;
+                selected = RowImport;
+            } else {
+                message = "Uninstall failed: " + err;
+                messageIsError = true;
+            }
+            SDL_RaiseWindow(window);
+            break;
+        }
         case RowQuit: return false;
         }
         return true;
@@ -514,10 +562,12 @@ int runLauncher(const std::string &exe)
     // Testing: SHOGO_LAUNCHER_IMPORT=<installer> starts an import,
     // SHOGO_LAUNCHER_PLAY=1 presses Play once the data is ready, and
     // SHOGO_LAUNCHER_SHOT=<file.bmp>@<seconds> saves the window then quits,
-    // SHOGO_LAUNCHER_ICON=<file.bmp> saves the Dock icon, and
-    // SHOGO_LAUNCHER_STEAM=1 selects Import from Steam.
+    // SHOGO_LAUNCHER_ICON=<file.bmp> saves the Dock icon,
+    // SHOGO_LAUNCHER_STEAM=1 selects Import from Steam, and
+    // SHOGO_LAUNCHER_ROW=<n> selects the nth row (from 0).
     if (const char *imp = getenv("SHOGO_LAUNCHER_IMPORT")) startImport(imp);
     if (getenv("SHOGO_LAUNCHER_STEAM")) selected = RowSteam;
+    if (const char *row = getenv("SHOGO_LAUNCHER_ROW")) selected = std::clamp(atoi(row), 0, RowCount - 1);
     bool autoPlay = getenv("SHOGO_LAUNCHER_PLAY") != nullptr;
     std::string shotFile;
     double shotAt = 0;
@@ -547,8 +597,8 @@ int runLauncher(const std::string &exe)
                 break;
             case SDL_EVENT_MOUSE_MOTION: {
                 int row = rowAt(e.motion.x, e.motion.y);
-                if (row == RowQuit && selected == RowSteam && steamHelp) {
-                    if (!quitHoverSince) quitHoverSince = SDL_GetTicks();
+                if (row > RowSteam && selected == RowSteam && steamHelp) {
+                    if (!quitHoverSince || row != quitHoverRow) quitHoverSince = SDL_GetTicks(), quitHoverRow = row;
                 } else {
                     quitHoverSince = 0;
                     if (row >= 0) selected = row;
@@ -583,7 +633,7 @@ int runLauncher(const std::string &exe)
             SDL_RaiseWindow(window);  // ready for Enter on Play (a drop leaves Finder in front)
             std::string err = importer.error();
             ready = hasGameData(dataDir);
-            if (ready) migrateLauncherSettings(dataDir);
+            if (ready) migrateLauncherSettings(playerDir);
             loadArt();
             if (err.empty()) {
                 message = "Imported. Ready to play.";
@@ -609,7 +659,7 @@ int runLauncher(const std::string &exe)
             }
         }
 
-        if (quitHoverSince && SDL_GetTicks() - quitHoverSince >= 250) selected = RowQuit, quitHoverSince = 0;
+        if (quitHoverSince && SDL_GetTicks() - quitHoverSince >= 250) selected = quitHoverRow, quitHoverSince = 0;
         if (copied >= 0 && SDL_GetTicks() - copiedAt >= 1500) copied = -1;
         steamHelp = selected == RowSteam;
 
@@ -630,7 +680,7 @@ int runLauncher(const std::string &exe)
         for (int i = 0; i < RowCount; ++i) {
             float y = kRowY + i * kRowH;
             bool sel = i == selected;
-            bool disabled = (i == RowPlay && !ready) || (i != RowQuit && importer.busy());
+            bool disabled = (i == RowPlay && !ready) || (i == RowUninstall && !installed()) || (i != RowQuit && importer.busy());
             if (sel) fill(renderer, kRowX, y - 10, kRowW, kRowH - 4, kRowHi);
             if (sel) text(renderer, kRowX + 8, y, ">", 2, kAccent);
             text(renderer, kRowX + 32, y, kRows[i], 2, disabled ? kDim : sel ? kGold : kText);
@@ -673,6 +723,11 @@ int runLauncher(const std::string &exe)
                 paragraph(renderer, kPanelX, y,
                           "Pick setup_shogo_-_mobile_armor_division_*.exe from GOG, or drop it on this window. "
                           "Nothing is installed or run.",
+                          kDim);
+            else if (selected == RowUninstall)
+                paragraph(renderer, kPanelX, y,
+                          "Removes the game data in " + tildePath(dataDir) + ". Your saves and settings stay in " +
+                              tildePath(playerDir) + ".",
                           kDim);
         }
         paragraph(renderer, kPanelX, kH - 126, kNotice, kText);

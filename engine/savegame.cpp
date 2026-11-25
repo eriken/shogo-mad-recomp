@@ -4,6 +4,7 @@
 #include "engine/model.h"
 #include "engine/objects.h"
 #include "engine/server.h"
+#include "shogo_win32.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -519,9 +520,9 @@ HOBJECT getClientRefObject(HCLIENTREF h)
 
 std::string savePath(const char *name)
 {
-    std::string p = name;
-    for (char &c : p)
-        if (c == '\\') c = '/';
+    char native[1024];
+    shogo_native_path(name, native, sizeof native);  // Save\x.sav: in the player's folder
+    std::string p = native;
     for (size_t i = p.find('/'); i != std::string::npos; i = p.find('/', i + 1))
         if (i > 0) mkdir(p.substr(0, i).c_str(), 0755);
     return p;

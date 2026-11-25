@@ -2,10 +2,22 @@
 #include "shogo_win32.h"
 
 #include <chrono>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <strings.h>
 #include <fstream>
 #include <sstream>
 #include <string>
 #include <vector>
+
+// The player's own files, relative to the game folder: Save/... and autoexec.cfg.
+static bool isPlayerPath(const char *p)
+{
+    if (p[0] == '.' && p[1] == '/') p += 2;
+    if (strcasecmp(p, "autoexec.cfg") == 0) return true;
+    return strncasecmp(p, "save", 4) == 0 && (p[4] == '\0' || p[4] == '/');
+}
 
 extern "C" void shogo_native_path(const char *in, char *out, size_t outSize)
 {
@@ -14,8 +26,16 @@ extern "C" void shogo_native_path(const char *in, char *out, size_t outSize)
     if (!in) return;
     if (isalpha((unsigned char)in[0]) && in[1] == ':') in += 2;  // drop "c:"
     size_t n = 0;
-    for (; *in && n + 1 < outSize; ++in) out[n++] = (*in == '\\') ? '/' : *in;
-    out[n] = '\0';
+    // The player's files are kept apart from the game data, in the folder
+    // SHOGO_PLAYER_DIR names (set by the app; unset, they're in the game folder).
+    char rel[1024];
+    for (; *in && n + 1 < sizeof rel; ++in) rel[n++] = (*in == '\\') ? '/' : *in;
+    rel[n] = '\0';
+    const char *player = getenv("SHOGO_PLAYER_DIR");
+    if (player && *player && rel[0] != '/' && isPlayerPath(rel))
+        snprintf(out, outSize, "%s/%s", player, rel[0] == '.' && rel[1] == '/' ? rel + 2 : rel);
+    else
+        snprintf(out, outSize, "%s", rel);
 }
 
 namespace {

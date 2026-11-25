@@ -10,7 +10,9 @@ extern "C" {
 #endif
 
 // Convert a game path ("Save\\Slot1.sav", "c:\\foo") into a POSIX path in out.
-// Backslashes become slashes and a leading drive letter is dropped.
+// Backslashes become slashes and a leading drive letter is dropped. The
+// player's files (Save\\..., autoexec.cfg) lead into the folder the
+// SHOGO_PLAYER_DIR environment variable names, when it's set.
 void shogo_native_path(const char *in, char *out, size_t outSize);
 
 // INI files, with the Win32 semantics the game relies on:

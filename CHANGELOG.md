@@ -3,6 +3,16 @@
 Each release's section here becomes its release notes on GitHub, so write it for
 players. The Release workflow refuses to publish a version that has no section.
 
+## Unreleased
+
+- **The game moves to `~/Games/Shogo`.** The imported game now sits in `~/Games/Shogo`.
+  Your saves and settings stay where they were, in
+  `~/Library/Application Support/Shogo Recomp/Game`. The first time you open the new
+  version, the launcher moves an existing import there for you.
+- **Uninstall.** A new **Uninstall…** button in the launcher removes the game from
+  `~/Games/Shogo` after asking first. Your saves and settings are kept, so they're
+  there again when you re-import.
+
 ## 0.2.2
 
 - **App icon.** Shogo now has its own icon, so Finder, Spotlight and launchers like

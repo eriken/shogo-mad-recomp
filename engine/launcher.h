@@ -1,6 +1,7 @@
 // The launcher: the app's first window when it's started without a game
 // folder (from Finder). It imports Shogo's data from GOG's installer or a
-// Steam game folder into Application Support, shows the notice Monolith's
+// Steam game folder into ~/Games/Shogo (and can remove it again, keeping the
+// player's saves and settings in Application Support), shows the notice Monolith's
 // source licence asks of variations, and starts the game as a separate
 // process (this app with --play), staying open while it runs.
 #ifndef SHOGO_ENGINE_LAUNCHER_H
