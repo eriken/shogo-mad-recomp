@@ -3,7 +3,7 @@
 Each release's section here becomes its release notes on GitHub, so write it for
 players. The Release workflow refuses to publish a version that has no section.
 
-## Unreleased
+## 0.3.0
 
 - **The game moves to `~/Games/Shogo`.** The imported game now sits in `~/Games/Shogo`.
   Your saves and settings stay where they were, in
