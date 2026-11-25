@@ -429,6 +429,10 @@ int runLauncher(const std::string &exe)
     // the steps' buttons doesn't hide the steps.
     Uint64 quitHoverSince = 0;
     int quitHoverRow = RowQuit;
+    // Uninstall asks for a second press of Enter (or click) on it; moving
+    // off the row, Esc or a few seconds' wait call it off.
+    Uint64 uninstallArmedAt = 0;
+    const Uint64 kUninstallWait = 5000;
     int copied = -1;  // the copy button just pressed, and when
     Uint64 copiedAt = 0;
     SDL_FRect buttons[ButtonCount] = {};  // where the help's buttons were drawn
@@ -514,16 +518,13 @@ int runLauncher(const std::string &exe)
                 messageIsError = false;
                 break;
             }
-            std::string ask = "This removes the game data in " + tildePath(dataDir) +
-                              ".\n\nYour saves and settings stay in " + tildePath(playerDir) +
-                              ", ready for when you import Shogo again.";
-            const SDL_MessageBoxButtonData answers[] = {
-                {SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT | SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 0, "Cancel"},
-                {0, 1, "Uninstall"},
-            };
-            const SDL_MessageBoxData box{SDL_MESSAGEBOX_WARNING, window, "Uninstall Shogo?", ask.c_str(), 2, answers, nullptr};
-            int answer = 0;
-            if (!SDL_ShowMessageBox(&box, &answer) || answer != 1) break;
+            // The first press only arms it: the panel asks for a second.
+            if (!uninstallArmedAt) {
+                uninstallArmedAt = SDL_GetTicks();
+                message.clear();
+                break;
+            }
+            uninstallArmedAt = 0;
             std::string err;
             bool ok = uninstallGame(dataDir, &err);
             ready = hasGameData(dataDir);
@@ -537,7 +538,6 @@ int runLauncher(const std::string &exe)
                 message = "Uninstall failed: " + err;
                 messageIsError = true;
             }
-            SDL_RaiseWindow(window);
             break;
         }
         case RowQuit: return false;
@@ -564,10 +564,13 @@ int runLauncher(const std::string &exe)
     // SHOGO_LAUNCHER_SHOT=<file.bmp>@<seconds> saves the window then quits,
     // SHOGO_LAUNCHER_ICON=<file.bmp> saves the Dock icon,
     // SHOGO_LAUNCHER_STEAM=1 selects Import from Steam, and
-    // SHOGO_LAUNCHER_ROW=<n> selects the nth row (from 0).
+    // SHOGO_LAUNCHER_ROW=<n> selects the nth row (from 0), and
+    // SHOGO_LAUNCHER_CHOOSE=<n> presses Enter on it n times.
     if (const char *imp = getenv("SHOGO_LAUNCHER_IMPORT")) startImport(imp);
     if (getenv("SHOGO_LAUNCHER_STEAM")) selected = RowSteam;
     if (const char *row = getenv("SHOGO_LAUNCHER_ROW")) selected = std::clamp(atoi(row), 0, RowCount - 1);
+    if (const char *n = getenv("SHOGO_LAUNCHER_CHOOSE"))  // presses Enter n times (testing)
+        for (int i = std::max(1, atoi(n)); i > 0; --i) choose(selected);
     bool autoPlay = getenv("SHOGO_LAUNCHER_PLAY") != nullptr;
     std::string shotFile;
     double shotAt = 0;
@@ -581,7 +584,7 @@ int runLauncher(const std::string &exe)
     bool running = true;
     while (running) {
         SDL_Event e;
-        bool waiting = quitHoverSince || copied >= 0;  // something to redraw soon
+        bool waiting = quitHoverSince || copied >= 0 || uninstallArmedAt;  // something to redraw soon
         bool got = SDL_WaitEventTimeout(&e, importer.busy() || game > 0 || waiting ? 50 : 250);
         while (got) {
             SDL_ConvertEventToRenderCoordinates(renderer, &e);
@@ -593,7 +596,10 @@ int runLauncher(const std::string &exe)
                 else if (e.key.key == SDLK_DOWN) selected = (selected + 1) % RowCount;
                 else if (e.key.key == SDLK_RETURN || e.key.key == SDLK_KP_ENTER || e.key.key == SDLK_SPACE)
                     running = choose(selected) && running;
-                else if (e.key.key == SDLK_ESCAPE) running = false;
+                else if (e.key.key == SDLK_ESCAPE) {
+                    if (uninstallArmedAt) uninstallArmedAt = 0;  // calls off the uninstall, not the launcher
+                    else running = false;
+                }
                 break;
             case SDL_EVENT_MOUSE_MOTION: {
                 int row = rowAt(e.motion.x, e.motion.y);
@@ -662,6 +668,8 @@ int runLauncher(const std::string &exe)
         if (quitHoverSince && SDL_GetTicks() - quitHoverSince >= 250) selected = quitHoverRow, quitHoverSince = 0;
         if (copied >= 0 && SDL_GetTicks() - copiedAt >= 1500) copied = -1;
         steamHelp = selected == RowSteam;
+        if (selected != RowUninstall || importer.busy() || SDL_GetTicks() - uninstallArmedAt >= kUninstallWait)
+            uninstallArmedAt = 0;
 
         // Draw: the splash (or the title, before the import) on the left,
         // the menu panel on the right.
@@ -724,6 +732,11 @@ int runLauncher(const std::string &exe)
                           "Pick setup_shogo_-_mobile_armor_division_*.exe from GOG, or drop it on this window. "
                           "Nothing is installed or run.",
                           kDim);
+            else if (selected == RowUninstall && uninstallArmedAt)
+                paragraph(renderer, kPanelX, y,
+                          "Press Enter again (or click Uninstall again) to remove " + tildePath(dataDir) +
+                              ". Your saves and settings stay. Esc cancels.",
+                          kAccent);
             else if (selected == RowUninstall)
                 paragraph(renderer, kPanelX, y,
                           "Removes the game data in " + tildePath(dataDir) + ". Your saves and settings stay in " +
